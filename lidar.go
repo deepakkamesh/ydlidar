@@ -33,6 +33,7 @@ const (
 type YDLidar struct {
 	ser  serial.SerialPort
 	D    chan DataPoint
+	Dp   chan DistPacket
 	stop chan struct{}
 }
 
@@ -42,6 +43,14 @@ type DataPoint struct {
 	Dist   float64
 	ZeroPt bool
 	Error  error
+}
+
+//DistPacket represents struct of a single sample set of readings.
+type DistPacket struct {
+	MinAngle  float64   // Minimum angle corresponds to first distance sample.
+	MaxAngle  float64   // Max angle corresponds to last distance sample.
+	Num       int       // Number of distance samples.
+	Distances []float64 // Slice containing distance data.
 }
 
 // DeviceInfo struct contains the version information.
@@ -67,6 +76,7 @@ type pointCloudHeader struct {
 func NewLidar() *YDLidar {
 	return &YDLidar{
 		D:    make(chan DataPoint),
+		Dp:   make(chan DistPacket),
 		stop: make(chan struct{}),
 	}
 }
@@ -99,8 +109,9 @@ func (l *YDLidar) Init(ttyPort string) error {
 }
 
 // StartScan starts up the scanning and data acquisition.
-func (l *YDLidar) StartScan() {
-	go l.startScan()
+// see startScan for more details.
+func (l *YDLidar) StartScan(pointCloud bool) {
+	go l.startScan(pointCloud)
 }
 
 // StopScan stops the lidar scans.
@@ -117,15 +128,17 @@ func (l *YDLidar) StopScan() error {
 
 }
 
-// sendErr sends error on channel
+// sendErr sends error on channel.
 func (l *YDLidar) sendErr(e error) {
 	l.D <- DataPoint{
 		Error: e,
 	}
 }
 
-// startScan runs the data acquistion from the lidar.
-func (l *YDLidar) startScan() {
+// startScan runs the data acquistion from the lidar. pointCloud controls id
+// the result is sent as DataPoint (point cloud) or DistPacket through channel.
+
+func (l *YDLidar) startScan(pointCloud bool) {
 
 	if err := l.ser.SetDTR(true); err != nil {
 		l.sendErr(fmt.Errorf("failed to set DTR :%v", err))
@@ -145,7 +158,7 @@ func (l *YDLidar) startScan() {
 		err = fmt.Errorf("read header failed:%v", err)
 
 	case typ != SCAN_TYPE_CODE:
-		err = fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", STATUS_TYPE_CODE, typ, mode)
+		err = fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", SCAN_TYPE_CODE, typ, mode)
 
 	case mode != 1:
 		err = fmt.Errorf("expected continuous mode")
@@ -161,7 +174,7 @@ func (l *YDLidar) startScan() {
 		case <-l.stop:
 			return
 		default:
-			// Read point cloud preamble.
+			// Read point cloud preamble header.
 			data := make([]byte, 10)
 			n, err := l.ser.Read(data)
 			if byte(n) != 10 {
@@ -196,13 +209,29 @@ func (l *YDLidar) startScan() {
 				l.sendErr(fmt.Errorf("failed to pack struct: %v", err))
 				return
 			}
+			// Convert readings to millimeters (divide by 4).
+			distances := make([]float64, ptHdr.Num)
+			for i := int8(0); i < ptHdr.Num; i++ {
+				distances[i] = float64(readings[i]) / 4
+			}
 
-			// Calculate distance.
-			angleCorFSA := angleCorrection(float64(readings[0]) / 4)
+			// Calculate angles.
+			angleCorFSA := angleCorrection(distances[0])
 			angleFSA := float64(ptHdr.Fsa>>1)/64 + angleCorFSA
 
-			angleCorLSA := angleCorrection(float64(readings[ptHdr.Num-1]) / 4)
+			angleCorLSA := angleCorrection(distances[ptHdr.Num-1])
 			angleLSA := float64(ptHdr.Lsa>>1)/64 + angleCorLSA
+
+			// Construct DistPacket and send if the option is set.
+			if !pointCloud {
+				l.Dp <- DistPacket{
+					MinAngle:  angleLSA,
+					MaxAngle:  angleLSA,
+					Num:       int(ptHdr.Num),
+					Distances: distances,
+				}
+				continue
+			}
 
 			var angleDelta float64
 
@@ -218,14 +247,14 @@ func (l *YDLidar) startScan() {
 			if ptHdr.Pkt == 1 {
 				l.D <- DataPoint{
 					Angle:  angleLSA,
-					Dist:   float64(readings[0]) / 4,
+					Dist:   distances[0],
 					ZeroPt: true,
 				}
 				continue
 			}
 
 			for i := int8(0); i < ptHdr.Num; i++ {
-				dist := float64(readings[i]) / 4
+				dist := distances[i]
 				angleCor := angleCorrection(dist)
 				angle := angleDelta/float64(ptHdr.Num-1)*float64(i) + angleFSA + angleCor
 				l.D <- DataPoint{
