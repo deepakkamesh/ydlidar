@@ -44,9 +44,9 @@ func TestStatus(t *testing.T) {
 func TestAngleCorr(t *testing.T) {
 
 	r := angleCorrection(1000)
-	assert.Equal(t, -6.762186021592019, r)
+	assert.Equal(t, float32(-6.762186021592019), r)
 	r = angleCorrection(8000)
-	assert.Equal(t, -7.837425240967011, r)
+	assert.Equal(t, float32(-7.837425240967011), r)
 }
 
 func TestScan(t *testing.T) {
@@ -55,7 +55,7 @@ func TestScan(t *testing.T) {
 
 	mockSerial := mocks.NewMockSerialPort(mockCtrl)
 	ydlidar := NewLidar()
-	ydlidar.SetMockSerial(mockSerial)
+	ydlidar.SetSerial(mockSerial)
 
 	// SetDTR.
 	mockSerial.EXPECT().SetDTR(true).Return(nil).Times(1)
@@ -101,14 +101,17 @@ func TestScan(t *testing.T) {
 
 	for i := 0; i < 2500; i++ {
 		d := <-ydlidar.D
-		fmt.Println("DD", d.Angle, d.Dist)
+		ptCloud := GetPointCloud(d)
 
-		X := math.Cos(d.Angle*DEG2RAD) * d.Dist
-		Y := math.Sin(d.Angle*DEG2RAD) * d.Dist
-		Xocc := int(math.Ceil(X/mapScale)) + 1000
-		Yocc := int(math.Ceil(Y/mapScale)) + 1000
-		Xd = append(Xd, Xocc)
-		Yd = append(Yd, Yocc)
+		for _, v := range ptCloud {
+
+			X := math.Cos(float64(v.Angle)*DEG2RAD) * float64(v.Dist)
+			Y := math.Sin(float64(v.Angle)*DEG2RAD) * float64(v.Dist)
+			Xocc := int(math.Ceil(X/mapScale)) + 1000
+			Yocc := int(math.Ceil(Y/mapScale)) + 1000
+			Xd = append(Xd, Xocc)
+			Yd = append(Yd, Yocc)
+		}
 	}
 
 	stream := mjpeg.NewStream()

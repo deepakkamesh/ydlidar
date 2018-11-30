@@ -3,7 +3,6 @@ package main
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"image"
 	"image/color"
@@ -11,54 +10,32 @@ import (
 	"log"
 	"math"
 	"net/http"
-	"os"
-	"os/signal"
 	"strconv"
+	"time"
 
 	"github.com/deepakkamesh/ydlidar"
 )
 
 func main() {
 
-	flag.Parse()
+	// GetMockSerial provides a simulated serial port and generates
+	// lidar data and start the mock data generations with pre-recorded data file.
 
-	ydlidar := ydlidar.NewLidar()
+	ser := ydlidar.GetMockSerial()
+	go ydlidar.MockDataGen(ser, "../../scan.data")
+	time.Sleep(10 * time.Millisecond)
 
-	if err := ydlidar.Init("/dev/tty.SLAB_USBtoUART"); err != nil {
-		log.Fatalf("Failed to init Lidar:%v", err)
-	}
-
-	// Check device health.
-	if err := ydlidar.Status(); err != nil {
-		log.Fatalf("Failed to query status:%v", err)
-	}
-
-	// Get Device Info.
-	err, info := ydlidar.DeviceInfo()
-	if err != nil {
-		log.Fatalf("Failed to read device health:%v", err)
-	}
-	fmt.Printf("%+v\n", info)
-
-	ydlidar.StartScan()
-
-	// Catch interrupts to exit clean.
-	c := make(chan os.Signal)
-	signal.Notify(c, os.Interrupt)
-	go func() {
-		select {
-		case sig := <-c:
-			log.Printf("Got %s signal. Aborting...\n", sig)
-
-			if err := ydlidar.StopScan(); err != nil {
-				log.Printf("Failed to stop scan: %v", err)
-			}
-			if err := ydlidar.Close(); err != nil {
-				log.Printf("Failed to close: %v", err)
-			}
-			os.Exit(1)
+	// Or uncomment below to get real serial port.
+	/*
+		ser, err := ydlidar.GetSerialPort("/dev/tty.SLAB_USBtoUART")
+		if err != nil {
+			panic(fmt.Sprintf("Failed to init Lidar:%v", err))
 		}
-	}()
+	*/
+	// Setup and initialize the lidar.
+	l := ydlidar.NewLidar()
+	l.SetSerial(ser)
+	l.StartScan()
 
 	// Start a HTTP service to serve up point cloud as a jpg image.
 	img := image.NewRGBA(image.Rect(0, 0, 2048, 2048))
@@ -83,7 +60,6 @@ func main() {
 	http.HandleFunc("/map", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/jpeg")
 		w.Header().Set("Content-Length", strconv.Itoa(len(buff.Bytes())))
-		fmt.Println("Output image of sz:", len(buff.Bytes()))
 		if _, err := w.Write(buff.Bytes()); err != nil {
 			fmt.Errorf("Unable to write image: %v", err)
 		}
@@ -97,20 +73,14 @@ func main() {
 	revs := 0
 	// Loop to read data from channel and construct image.
 	for {
-		d := <-ydlidar.D
+		d := <-l.D
 		if d.Error != nil {
 			panic(d.Error)
 		}
-		X := math.Cos(d.Angle*DEG2RAD) * d.Dist
-		Y := math.Sin(d.Angle*DEG2RAD) * d.Dist
-		Xocc := int(math.Ceil(X/mapScale)) + 1000
-		Yocc := int(math.Ceil(Y/mapScale)) + 1000
-
-		img.Set(Xocc, Yocc, color.RGBA{200, 100, 200, 200})
 
 		// ZeroPt indicates one revolution of lidar. Update image
-		// every 100 revolutions.
-		if d.ZeroPt {
+		// every 10 revolutions.
+		if d.PktType == 1 {
 			revs++
 			if revs == 10 {
 				revs = 0
@@ -120,6 +90,16 @@ func main() {
 				}
 				img = image.NewRGBA(image.Rect(0, 0, 2048, 2048))
 			}
+		}
+
+		for _, v := range ydlidar.GetPointCloud(d) {
+
+			X := math.Cos(float64(v.Angle)*DEG2RAD) * float64(v.Dist)
+			Y := math.Sin(float64(v.Angle)*DEG2RAD) * float64(v.Dist)
+			Xocc := int(math.Ceil(X/mapScale)) + 1000
+			Yocc := int(math.Ceil(Y/mapScale)) + 1000
+
+			img.Set(Xocc, Yocc, color.RGBA{200, 100, 200, 200})
 		}
 	}
 }

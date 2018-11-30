@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	serial "github.com/deepakkamesh/go-serial/serial"
 )
@@ -22,14 +23,15 @@ func main() {
 		BaudRate:              128000,
 		DataBits:              8,
 		StopBits:              1,
-		MinimumReadSize:       1,
-		InterCharacterTimeout: 0,
+		MinimumReadSize:       2,
+		InterCharacterTimeout: 200,
 		ParityMode:            serial.PARITY_NONE,
 	}
 	ser, err := serial.Open(c)
 	if err != nil {
 		log.Fatalf("Error opening %s", err)
 	}
+	time.Sleep(time.Millisecond * 100)
 
 	/* Uncomment to write bytes to file.
 	dump, err := os.OpenFile("scan.dump", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -56,7 +58,7 @@ func main() {
 	}()
 
 	// Command read and process loop.
-Start:
+START:
 	for {
 		line, err := in.ReadString('\n')
 		if err != nil {
@@ -71,7 +73,7 @@ Start:
 			c, err := strconv.ParseUint(inputs[i], 16, 8)
 			if err != nil {
 				log.Printf("Error converting input: %v", err)
-				continue Start
+				continue START
 			}
 			bytes = append(bytes, byte(c))
 		}
@@ -89,11 +91,10 @@ Start:
 			}
 		}
 
-		// Write to serial line.
+		//Write to serial line.
 		if _, err := ser.Write(bytes); err != nil {
 			log.Printf("failed to send to serial: %v", err)
 		}
 		log.Printf("Sent %v", bytes)
 	}
-
 }
