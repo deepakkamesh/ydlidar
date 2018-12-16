@@ -28,18 +28,18 @@ func main() {
 
 	// GetMockSerial provides a simulated serial port and generates
 	// lidar data and start the mock data generations with pre-recorded data file.
-
-	ser := ydlidar.GetMockSerial()
-	go ydlidar.MockDataGen(ser, "../../scan.data")
-	time.Sleep(10 * time.Millisecond)
-
-	// Or uncomment to get real serial port.
 	/*
-		ser, err := ydlidar.GetSerialPort("/dev/tty.SLAB_USBtoUART")
-		if err != nil {
-			panic(fmt.Sprintf("Failed to init Lidar:%v", err))
-		}
+		ser := ydlidar.GetMockSerial()
+		go ydlidar.MockDataGen(ser, "../../scan.data")
+		time.Sleep(10 * time.Millisecond)
 	*/
+	// Or uncomment to get real serial port.
+
+	ser, err := ydlidar.GetSerialPort("/dev/tty.SLAB_USBtoUART")
+	if err != nil {
+		panic(fmt.Sprintf("Failed to init Lidar:%v", err))
+	}
+
 	// Setup and initialize the lidar.
 	l := ydlidar.NewLidar()
 	l.SetSerial(ser)
@@ -53,17 +53,14 @@ func main() {
 	}
 
 	defer node.Shutdown()
-	node.Logger().SetSeverity(ros.LogLevelDebug)
+
+	node.Logger().SetSeverity(ros.LogLevelInfo)
 	pub := node.NewPublisher("/scan", sensor_msgs.MsgLaserScan)
 	seq := uint32(0)
 	freq := float32(12)
 	for node.OK() {
 		node.SpinOnce()
 		d := <-l.D
-
-		if d.Error != nil {
-			panic(d.Error.Error())
-		}
 
 		for i := 0; i < d.Num; i++ {
 			d.Distances[i] = d.Distances[i] / 1000
@@ -81,7 +78,7 @@ func main() {
 			AngleIncrement: DEG2RAD * d.DeltaAngle / float32(d.Num),
 			TimeIncrement:  (1 / freq) / float32(d.Num),
 			ScanTime:       float32(1) / freq,
-			RangeMin:       0.12,
+			RangeMin:       0.08,
 			RangeMax:       10,
 			Ranges:         d.Distances,
 		}

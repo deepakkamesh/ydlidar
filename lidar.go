@@ -63,9 +63,9 @@ type DeviceInfo struct {
 
 // pointCloudHeader is the preample for the point cloud data.
 type pointCloudHeader struct {
-	Header int16  // The length is 2B, fixed at 0x55AA, low in front, high in back.
-	Pkt    int8   // Indicates the current packet type. 0x00: Point cloud packet 0x01: Zero packet.
-	Num    int8   // Indicates the number of sample points contained in the current packet.
+	Header uint16 // The length is 2B, fixed at 0x55AA, low in front, high in back.
+	Pkt    uint8  // Indicates the current packet type. 0x00: Point cloud packet 0x01: Zero packet.
+	Num    uint8  // Indicates the number of sample points contained in the current packet.
 	Fsa    uint16 // The angle data corresponding to the first sample point in the sampled data.
 	Lsa    uint16 // The angle data corresponding to the last sample point in the sampled data.
 	Chksum uint16 //  Two-byte exclusive OR checksum value.
@@ -110,6 +110,7 @@ func (l *YDLidar) StartScan() {
 	go l.startScan()
 }
 
+// TODO: Need to flush the serial buffer when done.
 // StopScan stops the lidar scans.
 func (l *YDLidar) StopScan() error {
 	if err := l.ser.SetDTR(false); err != nil {
@@ -173,35 +174,35 @@ func (l *YDLidar) startScan() {
 			n, err := l.ser.Read(header)
 			if byte(n) != 10 {
 				l.sendErr(fmt.Errorf("not enough bytes. Expected %v got %v", 10, n))
-				return
+				continue
 			}
 			if err != nil {
 				l.sendErr(fmt.Errorf("failed to read serial %v", err))
-				return
+				continue
 			}
 			ptHdr := pointCloudHeader{}
 			buf := bytes.NewBuffer(header)
 			if err = binary.Read(buf, binary.LittleEndian, &ptHdr); err != nil {
 				l.sendErr(fmt.Errorf("failed to pack struct: %v", err))
-				return
+				continue
 			}
 
 			// Read distance data.
-			data := make([]byte, ptHdr.Num*2)
+			data := make([]byte, int(ptHdr.Num)*2)
 			n, err = l.ser.Read(data)
 			if err != nil {
 				l.sendErr(fmt.Errorf("failed to read serial %v", err))
-				return
+				continue
 			}
 			if n != int(ptHdr.Num*2) {
 				l.sendErr(fmt.Errorf("not enough bytes. Expected %v got %v", ptHdr.Num*2, n))
-				return
+				continue
 			}
 			readings := make([]int16, ptHdr.Num)
 			buf = bytes.NewBuffer(data)
 			if err = binary.Read(buf, binary.LittleEndian, &readings); err != nil {
 				l.sendErr(fmt.Errorf("failed to pack struct: %v", err))
-				return
+				continue
 			}
 
 			// Check CRC of the packet.
@@ -210,10 +211,14 @@ func (l *YDLidar) startScan() {
 				log.Printf(err.Error())
 				continue
 			}
+			// Check for sane number of packets.
+			if ptHdr.Num <= 0 {
+				continue
+			}
 
 			// Convert readings to millimeters (divide by 4).
 			distances := make([]float32, ptHdr.Num)
-			for i := int8(0); i < ptHdr.Num; i++ {
+			for i := uint8(0); i < ptHdr.Num; i++ {
 				distances[i] = float32(readings[i]) / 4
 			}
 
@@ -245,7 +250,6 @@ func (l *YDLidar) startScan() {
 			}
 		}
 	}
-	return
 }
 
 // GetPointCloud returns pointcloud (angle, dist) from the data packet.

@@ -19,7 +19,7 @@ func main() {
 	in := bufio.NewReader(os.Stdin)
 
 	c := serial.OpenOptions{
-		PortName:              "/dev/tty.SLAB_USBtoUART",
+		PortName:              "/dev/ttyUSB0",
 		BaudRate:              128000,
 		DataBits:              8,
 		StopBits:              1,
@@ -33,6 +33,7 @@ func main() {
 	}
 	time.Sleep(time.Millisecond * 100)
 
+	ser.SetDTR(false)
 	/* Uncomment to write bytes to file.
 	dump, err := os.OpenFile("scan.dump", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
