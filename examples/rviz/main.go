@@ -43,6 +43,9 @@ func main() {
 	// Setup and initialize the lidar.
 	l := ydlidar.NewLidar()
 	l.SetSerial(ser)
+	if err := l.SetDTR(true); err != nil {
+		panic(fmt.Sprintf("failed to set DTR:%v", err))
+	}
 	l.StartScan()
 
 	// Start up ros node.

@@ -113,9 +113,6 @@ func (l *YDLidar) StartScan() {
 // TODO: Need to flush the serial buffer when done.
 // StopScan stops the lidar scans.
 func (l *YDLidar) StopScan() error {
-	if err := l.ser.SetDTR(false); err != nil {
-		return err
-	}
 
 	if _, err := l.ser.Write([]byte{START, CSTOPSCAN}); err != nil {
 		return err
@@ -132,13 +129,13 @@ func (l *YDLidar) sendErr(e error) {
 	}
 }
 
+// SetDTR enables the DTR control for serial which controls the motor enable function.
+func (l *YDLidar) SetDTR(s bool) error {
+	return l.ser.SetDTR(s)
+}
+
 // startScan runs the data acquistion from the lidar.
 func (l *YDLidar) startScan() {
-
-	if err := l.ser.SetDTR(true); err != nil {
-		l.sendErr(fmt.Errorf("failed to set DTR :%v", err))
-		return
-	}
 
 	if _, err := l.ser.Write([]byte{START, CSTARTSCAN}); err != nil {
 		l.sendErr(fmt.Errorf("failed to start scan:%v", err))
