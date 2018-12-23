@@ -27,19 +27,19 @@ const DEG2RAD float32 = math.Pi / 180
 func main() {
 
 	// GetMockSerial provides a simulated serial port and generates
-	// lidar data and start the mock data generations with pre-recorded data file.
-	/*
-		ser := ydlidar.GetMockSerial()
-		go ydlidar.MockDataGen(ser, "../../scan.data")
-		time.Sleep(10 * time.Millisecond)
-	*/
+	// raw lidar data and start the mock data generations with pre-recorded data file.
+
+	ser := ydlidar.GetMockSerial()
+	go ydlidar.MockDataGen(ser, "../../scan3.data")
+	time.Sleep(10 * time.Millisecond)
+
 	// Or uncomment to get real serial port.
-
-	ser, err := ydlidar.GetSerialPort("/dev/tty.SLAB_USBtoUART")
-	if err != nil {
-		panic(fmt.Sprintf("Failed to init Lidar:%v", err))
-	}
-
+	/*
+		ser, err := ydlidar.GetSerialPort("/dev/tty.SLAB_USBtoUART")
+		if err != nil {
+			panic(fmt.Sprintf("Failed to init Lidar:%v", err))
+		}
+	*/
 	// Setup and initialize the lidar.
 	l := ydlidar.NewLidar()
 	l.SetSerial(ser)
@@ -60,34 +60,65 @@ func main() {
 	node.Logger().SetSeverity(ros.LogLevelInfo)
 	pub := node.NewPublisher("/scan", sensor_msgs.MsgLaserScan)
 	seq := uint32(0)
-	freq := float32(12)
-	for node.OK() {
-		node.SpinOnce()
+
+	minAngle := float32(360)
+	maxAngle := float32(0)
+	dist := []float32{}
+
+	for {
 		d := <-l.D
 
-		for i := 0; i < d.Num; i++ {
-			d.Distances[i] = d.Distances[i] / 1000
+		if d.PktType == 1 { // Zero packet.
+
+			// Convert from mm to m.
+			for i := 0; i < len(dist); i++ {
+				dist[i] = dist[i] / 1000
+			}
+
+			sendTopic(node, pub, seq, "laser_frame", minAngle, maxAngle, dist)
+			seq++
+
+			dist = []float32{}
+			minAngle = 360
+			maxAngle = 0
+			continue
 		}
+
+		// Ignore transitions from 360 -> 0. eg. min: 340 max: 4.
+		if d.MinAngle >= d.MaxAngle {
+			continue
+		}
+		if minAngle > d.MinAngle {
+			minAngle = d.MinAngle
+		}
+		if maxAngle < d.MaxAngle {
+			maxAngle = d.MaxAngle
+		}
+		dist = append(dist, d.Distances...)
+	}
+}
+
+func sendTopic(node ros.Node, pub ros.Publisher, seq uint32, laserFrame string, minAngle float32, maxAngle float32, dist []float32) {
+
+	if node.OK() {
 		hdr := std_msgs.Header{
 			Seq:     seq,
 			Stamp:   ros.NewTime(uint32(time.Now().Unix()), uint32(time.Now().UnixNano())),
 			FrameId: "laser_frame",
 		}
-		_ = hdr
 		pkt := sensor_msgs.LaserScan{
 			Header:         hdr,
-			AngleMin:       DEG2RAD * d.MinAngle,
-			AngleMax:       DEG2RAD * d.MaxAngle,
-			AngleIncrement: DEG2RAD * d.DeltaAngle / float32(d.Num),
-			TimeIncrement:  (1 / freq) / float32(d.Num),
-			ScanTime:       float32(1) / freq,
+			AngleMin:       DEG2RAD * minAngle,
+			AngleMax:       DEG2RAD * maxAngle,
+			AngleIncrement: DEG2RAD * (maxAngle - minAngle) / float32(len(dist)),
+			TimeIncrement:  0,
+			ScanTime:       float32(1) / 12,
 			RangeMin:       0.08,
 			RangeMax:       10,
-			Ranges:         d.Distances,
+			Ranges:         dist,
 		}
 		pub.Publish(&pkt)
-		time.Sleep(time.Millisecond * 100)
-		seq++
+		node.SpinOnce()
 	}
 
 }
