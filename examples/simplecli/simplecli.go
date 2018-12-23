@@ -19,11 +19,12 @@ func main() {
 	in := bufio.NewReader(os.Stdin)
 
 	c := serial.OpenOptions{
-		PortName:              "/dev/ttyUSB0",
+		//	PortName:              "/dev/ttyUSB0",
+		PortName:              "/dev/tty.SLAB_USBtoUART",
 		BaudRate:              128000,
 		DataBits:              8,
 		StopBits:              1,
-		MinimumReadSize:       2,
+		MinimumReadSize:       1,
 		InterCharacterTimeout: 200,
 		ParityMode:            serial.PARITY_NONE,
 	}
@@ -34,11 +35,11 @@ func main() {
 	time.Sleep(time.Millisecond * 100)
 
 	ser.SetDTR(false)
-	/* Uncomment to write bytes to file.
-	dump, err := os.OpenFile("scan.dump", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		panic(err)
-	}*/
+	// Uncomment to write bytes to file.
+	/*	dump, err := os.OpenFile("scan.dump", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			panic(err)
+		}*/
 
 	// Read the serial line in a goroutine.
 	go func() {
@@ -50,11 +51,11 @@ func main() {
 				continue
 			}
 			log.Printf("Got %d bytes buf:%v  buf:%x ", n, buf, buf)
-			// Write scan data to file.
-			/*		if _, err := dump.Write(buf); err != nil {
-						fmt.Printf("%v", err)
-					}
-					dump.Sync()*/
+			// Write scan data to file. Ensure len(buf) == 1
+			/*			if _, err := dump.Write(buf); err != nil {
+							fmt.Printf("%v", err)
+						}
+						dump.Sync() */
 		}
 	}()
 
