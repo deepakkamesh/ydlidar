@@ -147,7 +147,7 @@ func (l *YDLidar) startScan() {
 	var err error
 	switch {
 	case e != nil:
-		err = fmt.Errorf("read header failed:%v", err)
+		err = fmt.Errorf("read header failed: %v", e)
 
 	case typ != SCAN_TYPE_CODE:
 		err = fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", SCAN_TYPE_CODE, typ, mode)
