@@ -11,7 +11,7 @@ import (
 	"log"
 	"math"
 
-	"github.com/deepakkamesh/go-serial/serial"
+	"github.com/cesanta/go-serial/serial"
 )
 
 const (
@@ -31,7 +31,7 @@ const (
 
 // YDLidar is the lidar object.
 type YDLidar struct {
-	ser  serial.SerialPort
+	ser  serial.Serial
 	D    chan Packet
 	stop chan struct{}
 }
@@ -81,7 +81,7 @@ func NewLidar() *YDLidar {
 }
 
 // GetSerialPort returns a real serial port connection.
-func GetSerialPort(ttyPort string) (serial.SerialPort, error) {
+func GetSerialPort(ttyPort string) (serial.Serial, error) {
 
 	c := serial.OpenOptions{
 		PortName:              ttyPort,
@@ -100,7 +100,7 @@ func GetSerialPort(ttyPort string) (serial.SerialPort, error) {
 }
 
 // SetSerial used to set serial.
-func (l *YDLidar) SetSerial(s serial.SerialPort) {
+func (l *YDLidar) SetSerial(s serial.Serial) {
 	l.ser = s
 }
 
@@ -386,7 +386,7 @@ func (l *YDLidar) Status() error {
 }
 
 // readHeader reads the header portion of the response.
-func readHeader(ser serial.SerialPort) (err error, sz byte, typ byte, mode byte) {
+func readHeader(ser serial.Serial) (err error, sz byte, typ byte, mode byte) {
 	header := make([]byte, 7)
 	n, err := ser.Read(header)
 
