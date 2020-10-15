@@ -5,18 +5,18 @@ import (
 	"io/ioutil"
 	"testing"
 
-	"github.com/deepakkamesh/ydlidar/mocks"
+	mocks "github.com/deepakkamesh/ydlidar/mocks"
 	"github.com/golang/mock/gomock"
 )
 
-func GetMockSerial() *mocks.MockSerialPort {
+func GetMockSerial() *mocks.MockSerial {
 	// mockSerial simulates a serial interface.
 	var t testing.T
 	mockCtrl := gomock.NewController(&t)
-	return mocks.NewMockSerialPort(mockCtrl)
+	return mocks.NewMockSerial(mockCtrl)
 }
 
-func MockDataGen(mockSerial *mocks.MockSerialPort, fname string) {
+func MockDataGen(mockSerial *mocks.MockSerial, fname string) {
 	// SetDTR.
 	mockSerial.EXPECT().SetDTR(true).Return(nil).Times(1)
 
