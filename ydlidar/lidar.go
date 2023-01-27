@@ -17,7 +17,7 @@ import (
 const (
 	// YDLIDAR Commands.
 	START      = 0xA5
-	CSTATUS    = 0x91
+	CSTATUS    = 0x92
 	CINFO      = 0x90
 	CRESTART   = 0x40
 	CSTOPSCAN  = 0x65
