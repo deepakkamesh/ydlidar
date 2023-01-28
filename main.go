@@ -8,13 +8,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"image"
-	"image/color"
-	"image/jpeg"
 	"log"
 	"math"
-	"net/http"
-	"strconv"
 	"time"
 
 	"go.bug.st/serial"
@@ -22,12 +17,12 @@ import (
 
 const (
 	// YDLIDAR Commands.
-	STARTSCANNING     = 0xA5 // verified
-	HEALTHSTATUS  int = 0x92 // verified
-	DEVICEINFO        = 0x90 // verified
-	CRESTART          = 0x40 // verified
-	CSTOPSCAN         = 0x65 // verified
-	CSTARTSCAN        = 0x60 // verified
+	PRECOMMAND    = 0xA5 // verified
+	HEALTHSTATUS  = 0x92 // verified
+	DEVICEINFO    = 0x90 // verified
+	RESTARTDEVICE = 0x40 // verified
+	STOPSCANNING  = 0x65 // verified
+	STARTSCANNING = 0x60 // verified
 
 	//YDLIDAR Type Codes.
 	STATUS_TYPE_CODE = 0x06
@@ -37,9 +32,9 @@ const (
 
 // YDLidar is the lidar object.
 type YDLidar struct {
-	ser  serial.Port
-	D    chan Packet
-	stop chan struct{}
+	SerialPort serial.Port
+	D          chan Packet
+	Stop       chan struct{}
 }
 
 // PointCloud represents a single lidar reading.
@@ -59,22 +54,42 @@ type Packet struct {
 	Error      error
 }
 
-// DeviceInfo struct contains the version information.
+// DeviceInfo Works with G2
+// DeviceInfo contains the device model, firmware, hardware, and serial number.
 type DeviceInfo struct {
-	Model       byte     // Model number.
-	FirmwareVer [2]byte  // firmware version.
-	HardwareVer byte     // hardware version.
-	SerialNo    [16]byte // serial number.
+	Model    byte     // Model number.
+	Firmware [2]byte  // Firmware version.
+	Hardware byte     // Hardware version.
+	Serial   [16]byte // Serial number.
 }
 
 // pointCloudHeader is the preamble for the point cloud data.
 type pointCloudHeader struct {
-	Header uint16 // The length is 2B, fixed at 0x55AA, low in front, high in back.
-	Pkt    uint8  // Indicates the current packet type. 0x00: Point cloud packet 0x01: Zero packet.
-	Num    uint8  // Indicates the number of sample points contained in the current packet.
-	Fsa    uint16 // The angle data corresponding to the first sample point in the sampled data.
-	Lsa    uint16 // The angle data corresponding to the last sample point in the sampled data.
-	Chksum uint16 //  Two-byte exclusive OR checksum value.
+	// PacketHeader 2B in length, fixed at 0x55AA, low in front, high in back
+	PacketHeader uint16 // PH(2B)
+
+	// FrequencyAndPackageType F(bit7:1): represents the scanning frequency of the lidar at the current moment,
+	// the value is valid in the initial data packet, and the value is 0 by default in the
+	// point cloud data packet; C(bit0): represents the type of the current data packet;
+	// 0x00: Point cloud data package 0x01: Start data package
+	FrequencyAndPackageType uint8 // F&C (1B)
+
+	// SamplingQuality Indicates the number of sampling points contained in the current packet. There is only one zero point of data in the zero packet. The value is 1.
+	SamplingQuantity uint8 // LSN(1B)
+
+	// StartAngle The angle data corresponding to the first sample point in the sampled data
+	StartAngle uint16 // FSA(2B)
+
+	// EndAngle The angle data corresponding to the last sample point in the sampled data
+	EndAngle uint16 // LSA(2B)
+
+	// CheckCode The check code of the current data packet uses a two-byte exclusive OR to check the current data packet.
+	CheckCode uint16 // CS(2B
+
+	// Don't need to parse this data in the header.
+	//// SampleData of the system test is the distance data of the sampling point,
+	//// and the interference flag is also integrated in the LSB of the Si node
+	//SampleData [3]byte // Si(3B)
 
 }
 
@@ -82,7 +97,7 @@ type pointCloudHeader struct {
 func NewLidar() *YDLidar {
 	return &YDLidar{
 		D:    make(chan Packet),
-		stop: make(chan struct{}),
+		Stop: make(chan struct{}),
 	}
 }
 
@@ -99,7 +114,6 @@ func GetSerialPort(ttyPort *string) (serial.Port, error) {
 	}
 
 	for _, port := range ports {
-		log.Printf("Found port: %v\n", port)
 		mode := &serial.Mode{
 			BaudRate: 230400,
 			DataBits: 8,
@@ -109,10 +123,14 @@ func GetSerialPort(ttyPort *string) (serial.Port, error) {
 
 		currentPort, err := serial.Open(port, mode)
 		if err != nil {
-			log.Printf("Failed to connect to port %v. Error: %v", port, err)
 			continue
 		}
-		currentPort.SetDTR(true)
+
+		err = currentPort.SetDTR(true)
+		if err != nil {
+			return nil, err
+		}
+
 		log.Print("Connected to port: ", port)
 
 		return currentPort, nil
@@ -124,50 +142,50 @@ func GetSerialPort(ttyPort *string) (serial.Port, error) {
 }
 
 // SetSerial used to set serial.
-func (l *YDLidar) SetSerial(s serial.Port) {
-	l.ser = s
+func (lidar *YDLidar) SetSerial(s serial.Port) {
+	lidar.SerialPort = s
 }
 
 // StartScan starts up the scanning and data acquisition.
 // see startScan for more details.
-func (l *YDLidar) StartScan() {
-	go l.startScan()
+func (lidar *YDLidar) StartScan() {
+	go lidar.startScan()
 }
 
-// TODO: Need to flush the serial buffer when done.
+// StopScan TODO: Need to flush the serial buffer when done.
 // StopScan stops the lidar scans.
-func (l *YDLidar) StopScan() error {
+func (lidar *YDLidar) StopScan() error {
 
-	if _, err := l.ser.Write([]byte{STARTSCANNING, CSTOPSCAN}); err != nil {
+	if _, err := lidar.SerialPort.Write([]byte{PRECOMMAND, STOPSCANNING}); err != nil {
 		return err
 	}
-	l.stop <- struct{}{}
+	lidar.Stop <- struct{}{}
 	return nil
 
 }
 
 // sendErr sends error on channel.
-func (l *YDLidar) sendErr(e error) {
-	l.D <- Packet{
+func (lidar *YDLidar) sendErr(e error) {
+	lidar.D <- Packet{
 		Error: e,
 	}
 }
 
 // SetDTR enables the DTR control for serial which controls the motor enable function.
-func (l *YDLidar) SetDTR(s bool) error {
-	return l.ser.SetDTR(s)
+func (lidar *YDLidar) SetDTR(s bool) error {
+	return lidar.SerialPort.SetDTR(s)
 }
 
 // startScan runs the data acquistion from the lidar.
-func (l *YDLidar) startScan() {
+func (lidar *YDLidar) startScan() {
 
-	if _, err := l.ser.Write([]byte{STARTSCANNING, CSTARTSCAN}); err != nil {
-		l.sendErr(fmt.Errorf("failed to start scan:%v", err))
+	if _, err := lidar.SerialPort.Write([]byte{PRECOMMAND, STARTSCANNING}); err != nil {
+		lidar.sendErr(fmt.Errorf("failed to start scan:%v", err))
 		return
 	}
 
 	// Read and validate header.
-	e, _, typ, mode := readHeader(l.ser)
+	e, _, typ, mode := readHeader(lidar.SerialPort)
 	var err error
 	switch {
 	case e != nil:
@@ -181,79 +199,81 @@ func (l *YDLidar) startScan() {
 		err = fmt.Errorf("expected continuous mode")
 	}
 	if err != nil {
-		l.sendErr(err)
+		lidar.sendErr(err)
 		return
 	}
 
 	// Start loop to read distance samples.
 	for {
 		select {
-		case <-l.stop:
+		case <-lidar.Stop:
 			return
 		default:
 			// Read point cloud preamble header.
 			header := make([]byte, 10)
-			n, err := l.ser.Read(header)
-			if byte(n) != 10 {
-				err := l.StopScan()
+			n, err := lidar.SerialPort.Read(header)
+			log.Print(n, err)
+			if byte(n) != 0 {
+				err := lidar.StopScan()
 				if err != nil {
-					log.Printf("failed to stop scan: %v", err)
+					log.Printf("failed to Stop scan: %v", err)
 				}
-				l.sendErr(fmt.Errorf("not enough bytes. Expected %v got %v", 10, n))
+
+				lidar.sendErr(fmt.Errorf("not enough bytes. Expected %v got %v", 10, n))
 				continue
 			}
 			if err != nil {
-				l.sendErr(fmt.Errorf("failed to read serial %v", err))
+				lidar.sendErr(fmt.Errorf("failed to read serial %v", err))
 				continue
 			}
-			ptHdr := pointCloudHeader{}
+			pointCloudHeader := pointCloudHeader{}
 			buf := bytes.NewBuffer(header)
-			if err = binary.Read(buf, binary.LittleEndian, &ptHdr); err != nil {
-				l.sendErr(fmt.Errorf("failed to pack struct: %v", err))
+			if err = binary.Read(buf, binary.LittleEndian, &pointCloudHeader); err != nil {
+				lidar.sendErr(fmt.Errorf("failed to pack struct: %v", err))
 				continue
 			}
 
 			// Read distance data.
-			data := make([]byte, int(ptHdr.Num)*2)
-			n, err = l.ser.Read(data)
+			data := make([]byte, int(pointCloudHeader.SamplingQuantity)*2)
+			n, err = lidar.SerialPort.Read(data)
 			if err != nil {
-				l.sendErr(fmt.Errorf("failed to read serial %v", err))
+				lidar.sendErr(fmt.Errorf("failed to read serial %v", err))
 				continue
 			}
-			if n != int(ptHdr.Num*2) {
-				l.sendErr(fmt.Errorf("not enough bytes. Expected %v got %v", ptHdr.Num*2, n))
+			if n != int(pointCloudHeader.SamplingQuantity*2) {
+				lidar.sendErr(fmt.Errorf("not enough bytes. Expected %v got %v", pointCloudHeader.SamplingQuantity*2, n))
 				continue
 			}
-			readings := make([]int16, ptHdr.Num)
+			readings := make([]int16, pointCloudHeader.SamplingQuantity)
 			buf = bytes.NewBuffer(data)
 			if err = binary.Read(buf, binary.LittleEndian, &readings); err != nil {
-				l.sendErr(fmt.Errorf("failed to pack struct: %v", err))
+				lidar.sendErr(fmt.Errorf("failed to pack struct: %v", err))
 				continue
 			}
 
 			// Check CRC of the packet.
-			err = checkCRC(header, data, ptHdr.Chksum)
+			err = checkCRC(header, data, pointCloudHeader.CheckCode)
 			if err != nil {
 				log.Printf(err.Error())
 				continue
 			}
 			// Check for sane number of packets.
-			if ptHdr.Num <= 0 {
+			if pointCloudHeader.SamplingQuantity <= 0 {
 				continue
 			}
 
 			// Convert readings to millimeters (divide by 4).
-			distances := make([]float32, ptHdr.Num)
-			for i := uint8(0); i < ptHdr.Num; i++ {
+			distances := make([]float32, pointCloudHeader.SamplingQuantity)
+			for i := uint8(0); i < pointCloudHeader.SamplingQuantity; i++ {
 				distances[i] = float32(readings[i]) / 4
 			}
 
 			// Calculate angles.
 			angleCorFSA := angleCorrection(distances[0])
-			angleFSA := float32(ptHdr.Fsa>>1)/64 + angleCorFSA
+			angleFSA := float32(pointCloudHeader.StartAngle>>1)/64 + angleCorFSA
 
-			angleCorLSA := angleCorrection(distances[ptHdr.Num-1])
-			angleLSA := float32(ptHdr.Lsa>>1)/64 + angleCorLSA
+			angleCorLSA := angleCorrection(distances[pointCloudHeader.SamplingQuantity-1])
+			angleLSA := float32(pointCloudHeader.EndAngle>>1)/64 + angleCorLSA
 
 			var angleDelta float32
 
@@ -266,13 +286,13 @@ func (l *YDLidar) startScan() {
 				angleDelta = 0
 			}
 
-			l.D <- Packet{
+			lidar.D <- Packet{
 				MinAngle:   angleFSA,
 				MaxAngle:   angleLSA,
-				Num:        int(ptHdr.Num),
+				Num:        int(pointCloudHeader.SamplingQuantity),
 				Distances:  distances,
 				DeltaAngle: angleDelta,
-				PktType:    int(ptHdr.Pkt),
+				PktType:    int(pointCloudHeader.PacketHeader),
 			}
 		}
 	}
@@ -334,62 +354,65 @@ func angleCorrection(dist float32) float32 {
 }
 
 // Close will shutdown the connection.
-func (l *YDLidar) Close() error {
-	return l.ser.Close()
+func (lidar *YDLidar) Close() error {
+	return lidar.SerialPort.Close()
 }
 
 // Reboot soft reboots the lidar.
-func (l *YDLidar) Reboot() error {
-	if _, err := l.ser.Write([]byte{STARTSCANNING, CRESTART}); err != nil {
+func (lidar *YDLidar) Reboot() error {
+	if _, err := lidar.SerialPort.Write([]byte{PRECOMMAND, RESTARTDEVICE}); err != nil {
 		return err
 	}
 	return nil
 }
 
 // DeviceInfo returns the version information.
-func (l *YDLidar) DeviceInfo() (error, *DeviceInfo) {
-	if _, err := l.ser.Write([]byte{STARTSCANNING, DEVICEINFO}); err != nil {
-		return err, nil
+func (lidar *YDLidar) DeviceInfo() (*DeviceInfo, error) {
+	if _, err := lidar.SerialPort.Write([]byte{PRECOMMAND, DEVICEINFO}); err != nil {
+		return nil, err
 	}
 
-	err, sz, typ, mode := readHeader(l.ser)
+	err, sz, typ, mode := readHeader(lidar.SerialPort)
 	if err != nil {
-		return err, nil
+		return nil, err
 	}
 
 	if typ != INFO_TYPE_CODE {
-		return fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", STATUS_TYPE_CODE, typ, mode), nil
+		return nil, fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", STATUS_TYPE_CODE, typ, mode)
 	}
 
 	data := make([]byte, sz)
-	n, err := l.ser.Read(data)
+	n, err := lidar.SerialPort.Read(data)
+
+	stringData := bytes.NewBuffer(data).String()
+	log.Printf("Device Info: %v", stringData)
 
 	if byte(n) != sz {
-		return fmt.Errorf("not enough bytes. Expected %v got %v", sz, n), nil
+		return nil, fmt.Errorf("not enough bytes. Expected %v got %v", sz, n)
 	}
 	if err != nil {
-		return fmt.Errorf("failed to read serial:%v", err), nil
+		return nil, fmt.Errorf("failed to read serial:%v", err)
 	}
 
 	devInfo := &DeviceInfo{}
 
 	devInfo.Model = data[0]
-	copy(devInfo.FirmwareVer[:], data[1:3])
-	devInfo.HardwareVer = data[3:4][0]
-	copy(devInfo.SerialNo[:], data[4:20])
+	copy(devInfo.Firmware[:], data[1:3])
+	devInfo.Hardware = data[3:4][0]
+	copy(devInfo.Serial[:], data[4:20])
 
-	return nil, devInfo
+	return devInfo, nil
 
 }
 
 // Status returns the lidar status. Returns nil if the lidar is operating optimally.
-func (l *YDLidar) Status() error {
+func (lidar *YDLidar) Status() error {
 
-	if _, err := l.ser.Write([]byte{STARTSCANNING}); err != nil {
+	if _, err := lidar.SerialPort.Write([]byte{PRECOMMAND, HEALTHSTATUS}); err != nil {
 		return err
 	}
 
-	err, sz, typ, mode := readHeader(l.ser)
+	err, sz, typ, mode := readHeader(lidar.SerialPort)
 	if err != nil {
 		return err
 	}
@@ -399,7 +422,7 @@ func (l *YDLidar) Status() error {
 	}
 
 	data := make([]byte, sz)
-	n, err := l.ser.Read(data)
+	n, err := lidar.SerialPort.Read(data)
 
 	if byte(n) != sz {
 		return fmt.Errorf("not enough bytes. Expected %v got %v", sz, n)
@@ -458,71 +481,12 @@ func main() {
 	if err := lidar.SetDTR(true); err != nil {
 		panic(fmt.Sprintf("failed to set DTR:%v", err))
 	}
-	lidar.StartScan()
 
-	// Start a HTTP service to serve up point cloud as a jpg image.
-	img := image.NewRGBA(image.Rect(0, 0, 2048, 2048))
-	buff := new(bytes.Buffer)
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		str := []byte(`
-			<!DOCTYPE html>
-			<html>
-			<body>
-			<h1>Lidar Scan</h1>
-			<p>refreshed every 1 secs </p>
-				<img width=100% src="/map" id="reloader" onload="setTimeout('document.getElementById(\'reloader\').src=\'/map?\'+new Date().getMilliseconds()', 1000)" />
-			</body>
-			</html>
-			`)
-		if _, err := w.Write(str); err != nil {
-			log.Fatalf("Unable to write image: %v", err)
-		}
-	})
-
-	http.HandleFunc("/map", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "image/jpeg")
-		w.Header().Set("Content-Length", strconv.Itoa(len(buff.Bytes())))
-		if _, err := w.Write(buff.Bytes()); err != nil {
-			_ = fmt.Errorf("unable to write image: %v", err)
-		}
-	})
-	go func() {
-		log.Print(http.ListenAndServe(":1337", nil))
-	}()
-
-	DEG2RAD := math.Pi / 180
-	mapScale := 8.0
-	revs := 0
-	// Loop to read data from channel and construct image.
-	for {
-		d := <-lidar.D
-		if d.Error != nil {
-			panic(d.Error)
-		}
-
-		// ZeroPt indicates one revolution of lidar. Update image
-		// every 10 revolutions.
-		if d.PktType == 1 {
-			revs++
-			if revs == 10 {
-				revs = 0
-				buff.Reset()
-				if err := jpeg.Encode(buff, img, &jpeg.Options{Quality: 70}); err != nil {
-					fmt.Printf("%v", err)
-				}
-				img = image.NewRGBA(image.Rect(0, 0, 2048, 2048))
-			}
-		}
-
-		for _, v := range GetPointCloud(d) {
-
-			X := math.Cos(float64(v.Angle)*DEG2RAD) * float64(v.Dist)
-			Y := math.Sin(float64(v.Angle)*DEG2RAD) * float64(v.Dist)
-			Xocc := int(math.Ceil(X/mapScale)) + 1000
-			Yocc := int(math.Ceil(Y/mapScale)) + 1000
-
-			img.Set(Xocc, Yocc, color.RGBA{R: 200, G: 100, B: 200, A: 200})
-		}
+	deviceInfo, err := lidar.DeviceInfo()
+	if err != nil {
+		log.Fatal(err)
 	}
+	log.Print(deviceInfo.Model, "\n", deviceInfo.Firmware, "\n", deviceInfo.Hardware, "\n", deviceInfo.Serial)
+
+	lidar.StartScan()
 }
