@@ -159,7 +159,7 @@ func (lidar *YDLidar) startScan() {
 			newHeaderBuffer := make([]byte, 10)
 			n, err := lidar.SerialPort.Read(newHeaderBuffer)
 			if byte(n) != 10 {
-				lidar.sendErr(fmt.Errorf("not enough bytes. Expected %v got %v", 10, n))
+				lidar.sendErr(fmt.Errorf("start Scan: not enough bytes. Expected %v got %v", 10, n))
 				continue
 			}
 			if err != nil {
@@ -184,7 +184,7 @@ func (lidar *YDLidar) startScan() {
 			}
 
 			if n != int(pointCloudHeader.SamplingQuantity*2) {
-				lidar.sendErr(fmt.Errorf("not enough bytes. Expected %v got %v", pointCloudHeader.SamplingQuantity*2, n))
+				lidar.sendErr(fmt.Errorf("start Scan Sampling Quality: not enough bytes. Expected %v got %v", pointCloudHeader.SamplingQuantity*2, n))
 				continue
 			}
 
@@ -343,7 +343,7 @@ func (lidar *YDLidar) DeviceInfo() (*string, error) {
 	n, err := lidar.SerialPort.Read(data)
 
 	if byte(n) != sizeOfMessage {
-		return nil, fmt.Errorf("not enough bytes. Expected %v got %v", sizeOfMessage, n)
+		return nil, fmt.Errorf("device Info: not enough bytes. Expected %v got %v", sizeOfMessage, n)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to read serial:%v", err)
@@ -391,7 +391,7 @@ func (lidar *YDLidar) HealthInfo() (*string, error) {
 	n, err := lidar.SerialPort.Read(data)
 
 	if byte(n) != sizeOfMessage {
-		return nil, fmt.Errorf("not enough bytes. Expected %v got %v", sizeOfMessage, n)
+		return nil, fmt.Errorf("health Info: not enough bytes. Expected %v got %v", sizeOfMessage, n)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to read serial:%v", err)
@@ -417,7 +417,7 @@ func readHeader(serialPort serial.Port) (err error, sizeOfMessage byte, typeCode
 	}
 
 	if n != 7 {
-		err = fmt.Errorf("not enough bytes reading header. Expected 7 bytes got %v", n)
+		err = fmt.Errorf("read Header: not enough bytes reading header. Expected 7 bytes got %v", n)
 		return
 	}
 
