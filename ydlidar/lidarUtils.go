@@ -120,8 +120,8 @@ func (lidar *YDLidar) sendErr(e error) {
 }
 
 // SetDTR enables the DTR control for serial which controls the motor enable function.
-func (lidar *YDLidar) SetDTR(s bool) error {
-	return lidar.SerialPort.SetDTR(s)
+func (lidar *YDLidar) SetDTR(s bool) {
+	lidar.SerialPort.SetDTR(s)
 }
 
 // startScan runs the data acquisition from the lidar.
@@ -134,7 +134,7 @@ func (lidar *YDLidar) startScan() {
 	}
 
 	// Read and validate header.
-	err, _, typeCode, responseMode := readHeader(lidar.SerialPort)
+	_, typeCode, responseMode, err := readHeader(lidar.SerialPort)
 	switch {
 	case err != nil:
 		err = fmt.Errorf("read header failed: %v", err)
@@ -330,7 +330,7 @@ func (lidar *YDLidar) DeviceInfo() (*string, error) {
 		return nil, err
 	}
 
-	err, sizeOfMessage, typeCode, mode := readHeader(lidar.SerialPort)
+	sizeOfMessage, typeCode, mode, err := readHeader(lidar.SerialPort)
 	if err != nil {
 		return nil, err
 	}
@@ -378,7 +378,7 @@ func (lidar *YDLidar) HealthInfo() (*string, error) {
 		return nil, err
 	}
 
-	err, sizeOfMessage, typeCode, mode := readHeader(lidar.SerialPort)
+	sizeOfMessage, typeCode, mode, err := readHeader(lidar.SerialPort)
 	if err != nil {
 		return nil, err
 	}
@@ -408,37 +408,37 @@ func (lidar *YDLidar) HealthInfo() (*string, error) {
 }
 
 // readHeader reads the header portion of the response.
-func readHeader(serialPort serial.Port) (err error, sizeOfMessage byte, typeCode byte, mode byte) {
+func readHeader(serialPort serial.Port) (sizeOfMessage byte, typeCode byte, mode byte, err error) {
 	header := make([]byte, 7)
 	n, err := serialPort.Read(header)
 
 	if err != nil {
-		return err, 0, 0, 0
+		return 0, 0, 0, err
 	}
 
 	if n != 7 {
 		err = fmt.Errorf("read Header: not enough bytes reading header. Expected 7 bytes got %v", n)
-		return
+		return 0, 0, 0, err
 	}
 
 	preamble := int(header[1])<<8 | int(header[0])
 
 	if preamble != 0x5AA5 {
 		err = fmt.Errorf("invalid header. Expected preamble 0x5AA5 got %x", preamble)
-		return
+		return 0, 0, 0, err
 	}
 
 	sizeOfMessage = header[2]
 	typeCode = header[6]
 	mode = header[5] & 0xC0 >> 6
 
-	return
+	return sizeOfMessage, typeCode, mode, nil
 }
 
 // SetupCloseHandler creates a 'listener' on a new goroutine which will notify the
 // program if it receives an interrupt from the OS. We then handle this by calling
 // our clean-up procedure and exiting the program.
-func SetupCloseHandler(lidar *YDLidar) {
+func (lidar *YDLidar) SetupCloseHandler() {
 	c := make(chan os.Signal)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
@@ -485,12 +485,9 @@ func InitAndConnectToDevice(ttyPort *string) (*YDLidar, error) {
 
 	lidar := NewLidar()
 
-	SetupCloseHandler(lidar)
-
+	lidar.SetupCloseHandler()
 	lidar.SetSerial(devicePort)
-	if err := lidar.SetDTR(true); err != nil {
-		return nil, fmt.Errorf(fmt.Sprintf("failed to set DTR:%v", err))
-	}
+	lidar.SetDTR(true)
 
 	time.Sleep(time.Millisecond * 100)
 
