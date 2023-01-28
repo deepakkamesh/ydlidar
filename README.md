@@ -1,3 +1,3 @@
-# ydlidar X4 Go API.
+# ydlidar G2 Go API.
 
-http://blog.mindfront.net/2018/11/ydlidar-lidar-x4-api-in-golang.html
+This was forked from an X4 repo to be made compatible with the YDLIDAR G2 and maybe more YDLIDAR prodcuts in the future.
