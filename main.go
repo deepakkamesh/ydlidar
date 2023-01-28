@@ -16,18 +16,32 @@ import (
 )
 
 const (
-	// YDLIDAR Commands.
-	PRECOMMAND    = 0xA5 // verified
-	HEALTHSTATUS  = 0x92 // verified
-	DEVICEINFO    = 0x90 // verified
-	RESTARTDEVICE = 0x40 // verified
-	STOPSCANNING  = 0x65 // verified
-	STARTSCANNING = 0x60 // verified
+	// preCommand is the command to send before sending any other command.
+	preCommand = 0xA5 // verified
 
-	//YDLIDAR Type Codes.
-	STATUS_TYPE_CODE = 0x06
-	INFO_TYPE_CODE   = 0x04
-	SCAN_TYPE_CODE   = 0x81
+	// healthStatus is the command to get the health status.
+	healthStatus = 0x92 // verified
+
+	// deviceInfo is the command to get the device information.
+	deviceInfo = 0x90 // verified
+
+	// resetDevice is the command to reset the device.
+	restartDevice = 0x40 // verified
+
+	// stopScanning is the command to stop scanning.
+	stopScanning = 0x65 // verified
+
+	// startScanning is the command to start scanning.
+	startScanning = 0x60 // verified
+
+	// HealthTypeCode is the device response Health HealthStatus type code.
+	HealthTypeCode = 0x06 //verified
+
+	// InfoTypeCode is the device response Device Information type code.
+	InfoTypeCode = 0x04 //verified
+
+	// ScanTypeCode is the device response Scan Command type code.
+	ScanTypeCode = 0x81 // verified
 )
 
 // YDLidar is the lidar object.
@@ -165,7 +179,7 @@ func (lidar *YDLidar) StartScan() {
 // StopScan stops the lidar scans.
 func (lidar *YDLidar) StopScan() error {
 
-	if _, err := lidar.SerialPort.Write([]byte{PRECOMMAND, STOPSCANNING}); err != nil {
+	if _, err := lidar.SerialPort.Write([]byte{preCommand, stopScanning}); err != nil {
 		return err
 	}
 	lidar.Stop <- struct{}{}
@@ -188,7 +202,7 @@ func (lidar *YDLidar) SetDTR(s bool) error {
 // startScan runs the data acquistion from the lidar.
 func (lidar *YDLidar) startScan() {
 
-	if _, err := lidar.SerialPort.Write([]byte{PRECOMMAND, STARTSCANNING}); err != nil {
+	if _, err := lidar.SerialPort.Write([]byte{preCommand, startScanning}); err != nil {
 		lidar.sendErr(fmt.Errorf("failed to start scan:%v", err))
 		return
 	}
@@ -200,9 +214,9 @@ func (lidar *YDLidar) startScan() {
 	case e != nil:
 		err = fmt.Errorf("read header failed: %v", e)
 
-	case typ != SCAN_TYPE_CODE:
+	case typ != ScanTypeCode:
 
-		err = fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", SCAN_TYPE_CODE, typ, mode)
+		err = fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", ScanTypeCode, typ, mode)
 
 	case mode != 1:
 		err = fmt.Errorf("expected continuous mode")
@@ -369,7 +383,7 @@ func (lidar *YDLidar) Close() error {
 
 // Reboot soft reboots the lidar.
 func (lidar *YDLidar) Reboot() error {
-	if _, err := lidar.SerialPort.Write([]byte{PRECOMMAND, RESTARTDEVICE}); err != nil {
+	if _, err := lidar.SerialPort.Write([]byte{preCommand, restartDevice}); err != nil {
 		return err
 	}
 	return nil
@@ -377,7 +391,7 @@ func (lidar *YDLidar) Reboot() error {
 
 // DeviceInfo returns the version information.
 func (lidar *YDLidar) DeviceInfo() (*string, error) {
-	if _, err := lidar.SerialPort.Write([]byte{PRECOMMAND, DEVICEINFO}); err != nil {
+	if _, err := lidar.SerialPort.Write([]byte{preCommand, deviceInfo}); err != nil {
 		return nil, err
 	}
 
@@ -386,8 +400,8 @@ func (lidar *YDLidar) DeviceInfo() (*string, error) {
 		return nil, err
 	}
 
-	if typeCode != INFO_TYPE_CODE {
-		return nil, fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", STATUS_TYPE_CODE, typeCode, mode)
+	if typeCode != InfoTypeCode {
+		return nil, fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", HealthTypeCode, typeCode, mode)
 	}
 
 	data := make([]byte, sizeOfMessage)
@@ -414,7 +428,7 @@ func (lidar *YDLidar) DeviceInfo() (*string, error) {
 		stringDeviceInfo.Firmware = fmt.Sprintf("%v.%v", deviceInfo.Firmware[0], deviceInfo.Firmware[1])
 		stringDeviceInfo.Hardware = fmt.Sprintf("%v", deviceInfo.Hardware)
 		stringDeviceInfo.Serial = deviceInfo.Serial[:]
-		info := fmt.Sprintf("\nModel: %v\nHardware Version: %v\nFirmware Version: %v\nSerial Number: %v\n", deviceInfo.Model, deviceInfo.Hardware, deviceInfo.Firmware, deviceInfo.Serial)
+		info := fmt.Sprintf(" Model: %v Hardware Version: %v Firmware Version: %v Serial Number: %v\n", stringDeviceInfo.Model, stringDeviceInfo.Hardware, stringDeviceInfo.Firmware, stringDeviceInfo.Serial)
 		return &info, nil
 	} else {
 		return nil, fmt.Errorf("unknown model: %v", deviceInfo.Model)
@@ -422,45 +436,50 @@ func (lidar *YDLidar) DeviceInfo() (*string, error) {
 
 }
 
-// Status returns the lidar status. Returns nil if the lidar is operating optimally.
-func (lidar *YDLidar) Status() error {
+// HealthStatus returns the lidar status. Returns nil if the lidar is operating optimally.
+func (lidar *YDLidar) HealthStatus() (*string, error) {
 
-	if _, err := lidar.SerialPort.Write([]byte{PRECOMMAND, HEALTHSTATUS}); err != nil {
-		return err
+	if _, err := lidar.SerialPort.Write([]byte{preCommand, healthStatus}); err != nil {
+		return nil, err
 	}
 
-	err, sz, typ, mode := readHeader(lidar.SerialPort)
+	err, sizeOfMessage, typeCode, mode := readHeader(lidar.SerialPort)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if typ != STATUS_TYPE_CODE {
-		return fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", STATUS_TYPE_CODE, typ, mode)
+	if typeCode != HealthTypeCode {
+		return nil, fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", HealthTypeCode, typeCode, mode)
 	}
 
-	data := make([]byte, sz)
+	data := make([]byte, sizeOfMessage)
 	n, err := lidar.SerialPort.Read(data)
 
-	if byte(n) != sz {
-		return fmt.Errorf("not enough bytes. Expected %v got %v", sz, n)
+	if byte(n) != sizeOfMessage {
+		return nil, fmt.Errorf("not enough bytes. Expected %v got %v", sizeOfMessage, n)
 	}
 	if err != nil {
-		return fmt.Errorf("failed to read serial:%v", err)
+		return nil, fmt.Errorf("failed to read serial:%v", err)
 	}
 	if data[0] == 0x01 {
-		return fmt.Errorf("device problem. Error Code:%x %x", data[1], data[2])
+		return nil, fmt.Errorf("device problem. Error Code:%x %x", data[1], data[2])
 	}
 
-	return nil
+	if data[0] == 0 {
+		aReturn := "HEALTHY"
+		return &aReturn, nil
+	}
+
+	return nil, nil
 }
 
 // readHeader reads the header portion of the response.
-func readHeader(ser serial.Port) (err error, sz byte, typ byte, mode byte) {
+func readHeader(serialPort serial.Port) (err error, sizeOfMessage byte, typeCode byte, mode byte) {
 	header := make([]byte, 7)
-	n, err := ser.Read(header)
+	n, err := serialPort.Read(header)
 
 	if err != nil {
-		return
+		return err, 0, 0, 0
 	}
 
 	if n != 7 {
@@ -475,16 +494,14 @@ func readHeader(ser serial.Port) (err error, sz byte, typ byte, mode byte) {
 		return
 	}
 
-	sz = header[2]
-	typ = header[6]
+	sizeOfMessage = header[2]
+	typeCode = header[6]
 	mode = header[5] & 0xC0 >> 6
 
 	return
 }
 
 func main() {
-	//log.Print("**************************")
-
 	devicePort, err := GetSerialPort(nil)
 	if err != nil {
 		log.Panic(err)
@@ -503,7 +520,14 @@ func main() {
 	if err != nil {
 		log.Panic(err)
 	}
+
 	log.Printf("Device Info: %v", *deviceInfo)
 
-	lidar.StartScan()
+	healthStatus, err := lidar.HealthStatus()
+	if err != nil {
+		log.Panic(err)
+	}
+
+	log.Printf("Health Status: %v", *healthStatus)
+
 }
