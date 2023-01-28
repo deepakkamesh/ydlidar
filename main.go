@@ -14,7 +14,11 @@ import (
 )
 
 func main() {
-	lidar, err := InitAndConnectToDevice(nil)
+
+	// TODO read in from config file with option to remain nil
+	devicePort := "/dev/ttyUSB0"
+
+	lidar, err := InitAndConnectToDevice(&devicePort)
 	if err != nil {
 		log.Panic(err)
 	}

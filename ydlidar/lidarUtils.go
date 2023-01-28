@@ -30,7 +30,7 @@ func GetSerialPort(ttyPort *string) (serial.Port, error) {
 			BaudRate: 230400,          // 230400 baud
 			DataBits: 8,               // 8 data bits
 			Parity:   serial.NoParity, // No parity
-			StopBits: 0,               // 1 stop bit
+			StopBits: 0,               // 0 == 1 stop bit
 		}
 
 		currentPort, err := serial.Open(*ttyPort, mode)
