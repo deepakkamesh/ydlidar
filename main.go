@@ -63,6 +63,15 @@ type DeviceInfo struct {
 	Serial   [16]byte // Serial number.
 }
 
+// DeviceInfoString Works with G2
+// DeviceInfoString contains the device model, firmware, hardware, and serial number.
+type DeviceInfoString struct {
+	Model    string // Model number.
+	Firmware string // Firmware version.
+	Hardware string // Hardware version.
+	Serial   any    // Serial number.
+}
+
 // pointCloudHeader is the preamble for the point cloud data.
 type pointCloudHeader struct {
 	// PacketHeader 2B in length, fixed at 0x55AA, low in front, high in back
@@ -84,7 +93,7 @@ type pointCloudHeader struct {
 	EndAngle uint16 // LSA(2B)
 
 	// CheckCode The check code of the current data packet uses a two-byte exclusive OR to check the current data packet.
-	CheckCode uint16 // CS(2B
+	CheckCode uint16 // CS(2B)
 
 	// Don't need to parse this data in the header.
 	//// SampleData of the system test is the distance data of the sampling point,
@@ -106,19 +115,19 @@ func GetSerialPort(ttyPort *string) (serial.Port, error) {
 
 	ports, err := serial.GetPortsList()
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
 
 	if len(ports) == 0 {
-		log.Fatal("No serial ports found!")
+		log.Panic("No serial ports found!")
 	}
 
 	for _, port := range ports {
 		mode := &serial.Mode{
-			BaudRate: 230400,
-			DataBits: 8,
-			Parity:   serial.NoParity,
-			StopBits: 0,
+			BaudRate: 230400,          // 230400 baud
+			DataBits: 8,               // 8 data bits
+			Parity:   serial.NoParity, // No parity
+			StopBits: 0,               // 1 stop bit
 		}
 
 		currentPort, err := serial.Open(port, mode)
@@ -367,41 +376,49 @@ func (lidar *YDLidar) Reboot() error {
 }
 
 // DeviceInfo returns the version information.
-func (lidar *YDLidar) DeviceInfo() (*DeviceInfo, error) {
+func (lidar *YDLidar) DeviceInfo() (*string, error) {
 	if _, err := lidar.SerialPort.Write([]byte{PRECOMMAND, DEVICEINFO}); err != nil {
 		return nil, err
 	}
 
-	err, sz, typ, mode := readHeader(lidar.SerialPort)
+	err, sizeOfMessage, typeCode, mode := readHeader(lidar.SerialPort)
 	if err != nil {
 		return nil, err
 	}
 
-	if typ != INFO_TYPE_CODE {
-		return nil, fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", STATUS_TYPE_CODE, typ, mode)
+	if typeCode != INFO_TYPE_CODE {
+		return nil, fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", STATUS_TYPE_CODE, typeCode, mode)
 	}
 
-	data := make([]byte, sz)
+	data := make([]byte, sizeOfMessage)
 	n, err := lidar.SerialPort.Read(data)
 
-	stringData := bytes.NewBuffer(data).String()
-	log.Printf("Device Info: %v", stringData)
-
-	if byte(n) != sz {
-		return nil, fmt.Errorf("not enough bytes. Expected %v got %v", sz, n)
+	if byte(n) != sizeOfMessage {
+		return nil, fmt.Errorf("not enough bytes. Expected %v got %v", sizeOfMessage, n)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to read serial:%v", err)
 	}
 
-	devInfo := &DeviceInfo{}
+	deviceInfo := &DeviceInfo{}
 
-	devInfo.Model = data[0]
-	copy(devInfo.Firmware[:], data[1:3])
-	devInfo.Hardware = data[3:4][0]
-	copy(devInfo.Serial[:], data[4:20])
+	deviceInfo.Model = data[0]
+	copy(deviceInfo.Firmware[:], data[1:3])
+	deviceInfo.Hardware = data[3:4][0]
+	copy(deviceInfo.Serial[:], data[4:20])
 
-	return devInfo, nil
+	stringDeviceInfo := &DeviceInfoString{}
+
+	if deviceInfo.Model == 15 {
+		stringDeviceInfo.Model = "G2"
+		stringDeviceInfo.Firmware = fmt.Sprintf("%v.%v", deviceInfo.Firmware[0], deviceInfo.Firmware[1])
+		stringDeviceInfo.Hardware = fmt.Sprintf("%v", deviceInfo.Hardware)
+		stringDeviceInfo.Serial = deviceInfo.Serial[:]
+		info := fmt.Sprintf("\nModel: %v\nHardware Version: %v\nFirmware Version: %v\nSerial Number: %v\n", deviceInfo.Model, deviceInfo.Hardware, deviceInfo.Firmware, deviceInfo.Serial)
+		return &info, nil
+	} else {
+		return nil, fmt.Errorf("unknown model: %v", deviceInfo.Model)
+	}
 
 }
 
@@ -470,12 +487,12 @@ func main() {
 
 	devicePort, err := GetSerialPort(nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
 
-	lidar := NewLidar()
-
 	devicePort.SetReadTimeout(1000 * time.Millisecond)
+
+	lidar := NewLidar()
 
 	lidar.SetSerial(devicePort)
 	if err := lidar.SetDTR(true); err != nil {
@@ -484,9 +501,9 @@ func main() {
 
 	deviceInfo, err := lidar.DeviceInfo()
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
-	log.Print(deviceInfo.Model, "\n", deviceInfo.Firmware, "\n", deviceInfo.Hardware, "\n", deviceInfo.Serial)
+	log.Printf("Device Info: %v", *deviceInfo)
 
 	lidar.StartScan()
 }
