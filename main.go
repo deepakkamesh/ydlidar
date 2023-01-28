@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/deepakkamesh/ydlidar"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -23,12 +22,12 @@ import (
 
 const (
 	// YDLIDAR Commands.
-	START          = 0xA5
-	CSTATUS    int = 0x92
-	CINFO          = 0x90
-	CRESTART       = 0x40
-	CSTOPSCAN      = 0x65
-	CSTARTSCAN     = 0x60
+	STARTSCANNING     = 0xA5 // verified
+	HEALTHSTATUS  int = 0x92 // verified
+	DEVICEINFO        = 0x90 // verified
+	CRESTART          = 0x40 // verified
+	CSTOPSCAN         = 0x65 // verified
+	CSTARTSCAN        = 0x60 // verified
 
 	//YDLIDAR Type Codes.
 	STATUS_TYPE_CODE = 0x06
@@ -139,7 +138,7 @@ func (l *YDLidar) StartScan() {
 // StopScan stops the lidar scans.
 func (l *YDLidar) StopScan() error {
 
-	if _, err := l.ser.Write([]byte{START, CSTOPSCAN}); err != nil {
+	if _, err := l.ser.Write([]byte{STARTSCANNING, CSTOPSCAN}); err != nil {
 		return err
 	}
 	l.stop <- struct{}{}
@@ -162,7 +161,7 @@ func (l *YDLidar) SetDTR(s bool) error {
 // startScan runs the data acquistion from the lidar.
 func (l *YDLidar) startScan() {
 
-	if _, err := l.ser.Write([]byte{START, CSTARTSCAN}); err != nil {
+	if _, err := l.ser.Write([]byte{STARTSCANNING, CSTARTSCAN}); err != nil {
 		l.sendErr(fmt.Errorf("failed to start scan:%v", err))
 		return
 	}
@@ -175,6 +174,7 @@ func (l *YDLidar) startScan() {
 		err = fmt.Errorf("read header failed: %v", e)
 
 	case typ != SCAN_TYPE_CODE:
+
 		err = fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", SCAN_TYPE_CODE, typ, mode)
 
 	case mode != 1:
@@ -195,6 +195,10 @@ func (l *YDLidar) startScan() {
 			header := make([]byte, 10)
 			n, err := l.ser.Read(header)
 			if byte(n) != 10 {
+				err := l.StopScan()
+				if err != nil {
+					log.Printf("failed to stop scan: %v", err)
+				}
 				l.sendErr(fmt.Errorf("not enough bytes. Expected %v got %v", 10, n))
 				continue
 			}
@@ -336,7 +340,7 @@ func (l *YDLidar) Close() error {
 
 // Reboot soft reboots the lidar.
 func (l *YDLidar) Reboot() error {
-	if _, err := l.ser.Write([]byte{START, CRESTART}); err != nil {
+	if _, err := l.ser.Write([]byte{STARTSCANNING, CRESTART}); err != nil {
 		return err
 	}
 	return nil
@@ -344,7 +348,7 @@ func (l *YDLidar) Reboot() error {
 
 // DeviceInfo returns the version information.
 func (l *YDLidar) DeviceInfo() (error, *DeviceInfo) {
-	if _, err := l.ser.Write([]byte{START, CINFO}); err != nil {
+	if _, err := l.ser.Write([]byte{STARTSCANNING, DEVICEINFO}); err != nil {
 		return err, nil
 	}
 
@@ -381,7 +385,7 @@ func (l *YDLidar) DeviceInfo() (error, *DeviceInfo) {
 // Status returns the lidar status. Returns nil if the lidar is operating optimally.
 func (l *YDLidar) Status() error {
 
-	if _, err := l.ser.Write([]byte{START}); err != nil {
+	if _, err := l.ser.Write([]byte{STARTSCANNING}); err != nil {
 		return err
 	}
 
@@ -446,7 +450,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	lidar := ydlidar.NewLidar()
+	lidar := NewLidar()
 
 	devicePort.SetReadTimeout(1000 * time.Millisecond)
 
@@ -511,7 +515,7 @@ func main() {
 			}
 		}
 
-		for _, v := range ydlidar.GetPointCloud(d) {
+		for _, v := range GetPointCloud(d) {
 
 			X := math.Cos(float64(v.Angle)*DEG2RAD) * float64(v.Dist)
 			Y := math.Sin(float64(v.Angle)*DEG2RAD) * float64(v.Dist)

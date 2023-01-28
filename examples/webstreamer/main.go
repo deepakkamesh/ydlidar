@@ -44,6 +44,7 @@ func main() {
 			</body>
 			</html>
 			`)
+
 		if _, err := w.Write(str); err != nil {
 			log.Fatalf("Unable to write image: %v", err)
 		}
