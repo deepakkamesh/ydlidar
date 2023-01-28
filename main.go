@@ -65,13 +65,13 @@ type PointCloud struct {
 
 // Packet represents struct of a single sample set of readings.
 type Packet struct {
-	MinAngle   float32   // Minimum angle corresponds to first distance sample.
-	MaxAngle   float32   // Max angle corresponds to last distance sample.
-	DeltaAngle float32   // Delta between Min and Max Angles.
-	Num        int       // Number of distance samples.
-	Distances  []float32 // Slice containing distance data.
-	PacketType int       // Indicates the current packet type. 0x00: Point cloud packet 0x01: Zero packet.
-	Error      error
+	MinAngle           float32   // Minimum angle corresponds to first distance sample.
+	MaxAngle           float32   // Max angle corresponds to last distance sample.
+	DeltaAngle         float32   // Delta between Min and Max Angles.
+	NumDistanceSamples int       // Number of distance samples.
+	Distances          []float32 // Slice containing distance data.
+	PacketType         int       // Indicates the current packet type. 0x00: Point cloud packet 0x01: Zero packet.
+	Error              error
 }
 
 // DeviceInfo Works with G2
@@ -324,13 +324,15 @@ func (lidar *YDLidar) startScan() {
 			}
 
 			lidar.Packets <- Packet{
-				MinAngle:   angleFSA,
-				MaxAngle:   angleLSA,
-				Num:        int(pointCloudHeader.SamplingQuantity),
-				Distances:  distances,
-				DeltaAngle: angleDelta,
-				PacketType: int(pointCloudHeader.PacketHeader),
+				MinAngle:           angleFSA,
+				MaxAngle:           angleLSA,
+				NumDistanceSamples: int(pointCloudHeader.SamplingQuantity),
+				Distances:          distances,
+				DeltaAngle:         angleDelta,
+				PacketType:         int(pointCloudHeader.PacketHeader),
 			}
+
+			log.Printf("FINISHED PACKET\n")
 		}
 	}
 }
@@ -347,9 +349,9 @@ func GetPointCloud(packet Packet) (pointClouds []PointCloud) {
 		return
 	}
 
-	for i := 0; i < packet.Num; i++ {
+	for i := 0; i < packet.NumDistanceSamples; i++ {
 		dist := packet.Distances[i]
-		angle := packet.DeltaAngle/float32(packet.Num-1)*float32(i) + packet.MinAngle + angleCorrection(dist)
+		angle := packet.DeltaAngle/float32(packet.NumDistanceSamples-1)*float32(i) + packet.MinAngle + angleCorrection(dist)
 		pointClouds = append(pointClouds,
 			PointCloud{
 				Angle: angle,
@@ -364,17 +366,19 @@ func GetPointCloud(packet Packet) (pointClouds []PointCloud) {
 func checkCRC(header []byte, data []byte, crc uint16) error {
 
 	// Make a 16bit slice big enough to hold header (minus CRC) and data.
-	dataPkt := make([]uint16, 4+len(data)/2)
+	dataPacket := make([]uint16, 4+len(data)/2)
 
 	buffer := bytes.NewBuffer(append(header[:8], data...))
-	if err := binary.Read(buffer, binary.LittleEndian, &dataPkt); err != nil {
+	if err := binary.Read(buffer, binary.LittleEndian, &dataPacket); err != nil {
 		return fmt.Errorf("failed to pack struct: %v", err)
 	}
 
+	log.Printf("dataPacket: %v\n", dataPacket)
+
 	// Calculate Xor of all bits.
 	x := uint16(0)
-	for i := 0; i < len(dataPkt); i++ {
-		x ^= dataPkt[i]
+	for i := 0; i < len(dataPacket); i++ {
+		x ^= dataPacket[i]
 	}
 	if x != crc {
 		return fmt.Errorf("CRC failed. Ignoring data packet")
@@ -573,15 +577,14 @@ func main() {
 
 	go lidar.StartScan()
 
-	// ----------------------------------------------//
+	// Doesn't scan without stuff below
 
-	// Start an HTTP service to serve up point cloud as a jpg image.
 	img := image.NewRGBA(image.Rect(0, 0, 2048, 2048))
-	buff := new(bytes.Buffer)
+	out, err := os.Create("./output.jpg")
 
 	DEG2RAD := math.Pi / 180
 	mapScale := 8.0
-	revs := 0
+	revolutions := 0
 	// Loop to read data from channel and construct image.
 	for {
 		packet := <-lidar.Packets
@@ -591,25 +594,30 @@ func main() {
 
 		// ZeroPt indicates one revolution of lidar. Update image
 		// every 10 revolutions.
-		if packet.PacketType == 1 {
-			revs++
-			log.Print("\nREVS: ", revs)
-			if revs == 10 {
-				revs = 0
+		if packet.PacketType == 0 {
+			revolutions++
+			log.Print("\nREVS: ", revolutions, "\n")
+			if revolutions == 10 {
+				revolutions = 0
 
-				if err := jpeg.Encode(buff, img, &jpeg.Options{Quality: 70}); err != nil {
+				if err := jpeg.Encode(out, img, &jpeg.Options{Quality: 70}); err != nil {
 					fmt.Printf("%v", err)
 				}
 				img = image.NewRGBA(image.Rect(0, 0, 2048, 2048))
-				os.WriteFile("pointcloud.jpg", buff.Bytes(), 0644)
-				buff.Reset()
 			}
 		}
 
+		if packet.PacketType == 1 {
+			log.Printf("Continuing: %v\n", packet.PacketType)
+			continue
+		}
+
 		for _, v := range GetPointCloud(packet) {
+			//log.Printf("Getting point cloud: %v", v)
 
 			X := math.Cos(float64(v.Angle)*DEG2RAD) * float64(v.Dist)
 			Y := math.Sin(float64(v.Angle)*DEG2RAD) * float64(v.Dist)
+			log.Printf("X: %v, Y: %v", X, Y)
 			Xocc := int(math.Ceil(X/mapScale)) + 1000
 			Yocc := int(math.Ceil(Y/mapScale)) + 1000
 

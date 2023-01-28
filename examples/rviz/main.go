@@ -63,7 +63,7 @@ func main() {
 
 	minAngle := float32(360)
 	maxAngle := float32(0)
-	dist := []float32{}
+	var dist []float32
 
 	for {
 		d := <-l.D
