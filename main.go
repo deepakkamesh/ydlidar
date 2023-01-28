@@ -210,13 +210,12 @@ func (lidar *YDLidar) startScan() {
 	continuousResponse := byte(1)
 
 	if _, err := lidar.SerialPort.Write([]byte{preCommand, startScanning}); err != nil {
-		lidar.sendErr(fmt.Errorf("failed to start scan:%v", err))
+		lidar.sendErr(fmt.Errorf("failed to start scan: %v", err))
 		return
 	}
 
 	// Read and validate header.
 	err, _, typeCode, responseMode := readHeader(lidar.SerialPort)
-	log.Print(typeCode, "\n", responseMode)
 	switch {
 	case err != nil:
 		err = fmt.Errorf("read header failed: %v", err)
@@ -251,11 +250,6 @@ func (lidar *YDLidar) startScan() {
 				continue
 			}
 
-			if byte(n) != 10 {
-				lidar.sendErr(fmt.Errorf("not enough bytes. Expected %v got %v", 10, n))
-				continue
-			}
-
 			pointCloudHeader := pointCloudHeader{}
 
 			buf := bytes.NewBuffer(header)
@@ -283,7 +277,7 @@ func (lidar *YDLidar) startScan() {
 				lidar.sendErr(fmt.Errorf("failed to pack struct: %v", err))
 				continue
 			}
-			log.Printf("READINGS??? %v \n \n", readings)
+			log.Printf("Start Scan Reading: %v\n", readings)
 
 			//--------------------------- Everything above this works for the G2 ---------------------------
 
@@ -349,7 +343,7 @@ func GetPointCloud(packet Packet) (pointClouds []PointCloud) {
 		return
 	}
 
-	for i := 0; i < packet.NumDistanceSamples; i++ {
+	for i, _ := range packet.Distances {
 		dist := packet.Distances[i]
 		angle := packet.DeltaAngle/float32(packet.NumDistanceSamples-1)*float32(i) + packet.MinAngle + angleCorrection(dist)
 		pointClouds = append(pointClouds,
@@ -368,18 +362,25 @@ func checkCRC(header []byte, data []byte, crc uint16) error {
 	// Make a 16bit slice big enough to hold header (minus CRC) and data.
 	dataPacket := make([]uint16, 4+len(data)/2)
 
+	log.Printf("Datapacket: %v\n", len(dataPacket))
+
 	buffer := bytes.NewBuffer(append(header[:8], data...))
 	if err := binary.Read(buffer, binary.LittleEndian, &dataPacket); err != nil {
 		return fmt.Errorf("failed to pack struct: %v", err)
 	}
 
-	log.Printf("dataPacket: %v\n", dataPacket)
+	//for i := 0; i < len(dataPacket); i++ {
+	//	log.Printf("dataPacket: %v\n", strconv.Itoa(int(dataPacket[i])))
+	//}
 
 	// Calculate Xor of all bits.
 	x := uint16(0)
 	for i := 0; i < len(dataPacket); i++ {
 		x ^= dataPacket[i]
 	}
+
+	log.Printf("XOR: %v\n", x)
+
 	if x != crc {
 		return fmt.Errorf("CRC failed. Ignoring data packet")
 	}
@@ -579,7 +580,7 @@ func main() {
 
 	// Doesn't scan without stuff below
 
-	img := image.NewRGBA(image.Rect(0, 0, 2048, 2048))
+	img := image.NewRGBA(image.Rect(0, 0, 256, 256))
 	out, err := os.Create("./output.jpg")
 
 	DEG2RAD := math.Pi / 180
@@ -592,24 +593,18 @@ func main() {
 		//	log.Panic(packet.Error)
 		//}
 
-		// ZeroPt indicates one revolution of lidar. Update image
-		// every 10 revolutions.
+		// ZeroPt indicates one revolution of lidar. Update image every 10 revolutions.
 		if packet.PacketType == 0 {
 			revolutions++
-			log.Print("\nREVS: ", revolutions, "\n")
+			//log.Print("REVS: ", revolutions, "\n")
 			if revolutions == 10 {
 				revolutions = 0
 
 				if err := jpeg.Encode(out, img, &jpeg.Options{Quality: 70}); err != nil {
 					fmt.Printf("%v", err)
 				}
-				img = image.NewRGBA(image.Rect(0, 0, 2048, 2048))
+				img = image.NewRGBA(image.Rect(0, 0, 256, 256))
 			}
-		}
-
-		if packet.PacketType == 1 {
-			log.Printf("Continuing: %v\n", packet.PacketType)
-			continue
 		}
 
 		for _, v := range GetPointCloud(packet) {
