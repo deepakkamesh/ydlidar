@@ -4,6 +4,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"github.com/deepakkamesh/ydlidar"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -12,12 +13,12 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/deepakkamesh/ydlidar"
+	. "ydlidar/ydlidar"
 )
 
 func main() {
 	// Get the serial port.
-	ser, err := ydlidar.GetSerialPort("/dev/ttyUSB0")
+	ser, err := GetSerialPort("/dev/ttyUSB0")
 	if err != nil {
 		panic(fmt.Sprintf("Failed to init Lidar:%v", err))
 	}

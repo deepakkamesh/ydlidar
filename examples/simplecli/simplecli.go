@@ -70,7 +70,7 @@ START:
 		inputs := strings.Split(strings.Trim(line, "\n "), " ")
 
 		// Convert string into bytes slice.
-		bytes := []byte{}
+		var bytes []byte
 		for i := 0; i < len(inputs); i++ {
 			c, err := strconv.ParseUint(inputs[i], 16, 8)
 			if err != nil {
@@ -93,7 +93,7 @@ START:
 			}
 		}
 
-		//Write to serial line.
+		// Write to serial line.
 		if _, err := ser.Write(bytes); err != nil {
 			log.Printf("failed to send to serial: %v", err)
 		}
