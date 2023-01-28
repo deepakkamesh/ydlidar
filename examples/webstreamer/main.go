@@ -16,28 +16,18 @@ import (
 )
 
 func main() {
-
-	// GetMockSerial provides a simulated serial port and generates
-	// lidar data and start the mock data generations with pre-recorded data file.
-	/*
-		ser := ydlidar.GetMockSerial()
-		go ydlidar.MockDataGen(ser, "../../scan.data")
-		time.Sleep(10 * time.Millisecond)
-	*/
-	// Or uncomment below to get real serial port.
-
-	ser, err := ydlidar.GetSerialPort("/dev/tty.SLAB_USBtoUART")
+	// Get the serial port.
+	ser, err := ydlidar.GetSerialPort("/dev/ttyUSB0")
 	if err != nil {
 		panic(fmt.Sprintf("Failed to init Lidar:%v", err))
 	}
-
 	// Setup and initialize the lidar.
-	l := ydlidar.NewLidar()
-	l.SetSerial(ser)
-	if err := l.SetDTR(true); err != nil {
+	lidar := ydlidar.NewLidar()
+	lidar.SetSerial(ser)
+	if err := lidar.SetDTR(true); err != nil {
 		panic(fmt.Sprintf("failed to set DTR:%v", err))
 	}
-	l.StartScan()
+	lidar.StartScan()
 
 	// Start a HTTP service to serve up point cloud as a jpg image.
 	img := image.NewRGBA(image.Rect(0, 0, 2048, 2048))
@@ -63,11 +53,11 @@ func main() {
 		w.Header().Set("Content-Type", "image/jpeg")
 		w.Header().Set("Content-Length", strconv.Itoa(len(buff.Bytes())))
 		if _, err := w.Write(buff.Bytes()); err != nil {
-			fmt.Errorf("Unable to write image: %v", err)
+			_ = fmt.Errorf("unable to write image: %v", err)
 		}
 	})
 	go func() {
-		log.Fatal(http.ListenAndServe(":8080", nil))
+		log.Print(http.ListenAndServe(":1337", nil))
 	}()
 
 	DEG2RAD := math.Pi / 180
@@ -75,7 +65,7 @@ func main() {
 	revs := 0
 	// Loop to read data from channel and construct image.
 	for {
-		d := <-l.D
+		d := <-lidar.D
 		if d.Error != nil {
 			panic(d.Error)
 		}
@@ -87,7 +77,7 @@ func main() {
 			if revs == 10 {
 				revs = 0
 				buff.Reset()
-				if err := jpeg.Encode(buff, img, &jpeg.Options{70}); err != nil {
+				if err := jpeg.Encode(buff, img, &jpeg.Options{Quality: 70}); err != nil {
 					fmt.Printf("%v", err)
 				}
 				img = image.NewRGBA(image.Rect(0, 0, 2048, 2048))
@@ -101,7 +91,7 @@ func main() {
 			Xocc := int(math.Ceil(X/mapScale)) + 1000
 			Yocc := int(math.Ceil(Y/mapScale)) + 1000
 
-			img.Set(Xocc, Yocc, color.RGBA{200, 100, 200, 200})
+			img.Set(Xocc, Yocc, color.RGBA{R: 200, G: 100, B: 200, A: 200})
 		}
 	}
 }

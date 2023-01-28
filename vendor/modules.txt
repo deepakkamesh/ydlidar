@@ -1,0 +1,31 @@
+# github.com/akio/rosgo v0.0.0-20211207001626-3b597dc08d0d
+## explicit; go 1.17
+github.com/akio/rosgo/ros
+github.com/akio/rosgo/xmlrpc
+# github.com/creack/goselect v0.1.2
+## explicit; go 1.13
+github.com/creack/goselect
+# github.com/deepakkamesh/go-serial v0.0.0-20181216054317-9cd3ac141a84
+## explicit
+github.com/deepakkamesh/go-serial/serial
+# github.com/deepakkamesh/ydlidar v0.0.0-20190103063355-3beb50e458de
+## explicit
+github.com/deepakkamesh/ydlidar
+github.com/deepakkamesh/ydlidar/mocks
+# github.com/golang/mock v1.6.0
+## explicit; go 1.11
+github.com/golang/mock/gomock
+# github.com/pkg/term v1.1.0
+## explicit; go 1.14
+github.com/pkg/term/termios
+# github.com/saljam/mjpeg v0.0.0-20180803045301-9c13c8154926
+## explicit
+# go.bug.st/serial v1.5.0
+## explicit; go 1.17
+go.bug.st/serial
+go.bug.st/serial/unixutils
+# golang.org/x/sys v0.0.0-20220829200755-d48e67d00261
+## explicit; go 1.17
+golang.org/x/sys/internal/unsafeheader
+golang.org/x/sys/unix
+golang.org/x/sys/windows
