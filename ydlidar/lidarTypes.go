@@ -79,7 +79,7 @@ type Packet struct {
 	DeltaAngle         float32   // Delta between Min and Max Angles.
 	NumDistanceSamples int       // Number of distance samples.
 	Distances          []float32 // Slice containing distance data.
-	PacketType         int       // Indicates the current packet type. 0x00: Point cloud packet 0x01: Zero packet.
+	PacketType         uint16    // Indicates the current packet type. 0x00: Point cloud packet 0x01: Zero packet.
 	Error              error
 }
 
@@ -104,29 +104,29 @@ type DeviceInfoString struct {
 // pointCloudHeader is the preamble for the point cloud data.
 type pointCloudHeader struct {
 	// PacketHeader 2B in length, fixed at 0x55AA, low in front, high in back
-	PacketHeader uint16 // PH(2B)
+	// PH(2B)
+	PacketHeader uint16
 
 	// FrequencyAndPackageType F(bit7:1): represents the scanning frequency of the lidar at the current moment,
 	// the value is valid in the initial data packet, and the value is 0 by default in the
 	// point cloud data packet; C(bit0): represents the type of the current data packet;
 	// 0x00: Point cloud data package 0x01: Start data package
-	FrequencyAndPackageType uint8 // F&C (1B)
+	// F&C (1B) [0 0 0 0 0 0 0 0]
+	FrequencyAndPackageType uint8
 
 	// SamplingQuality Indicates the number of sampling points contained in the current packet. There is only one zero point of data in the zero packet. The value is 1.
-	SamplingQuantity uint8 // LSN(1B)
+	// LSN(1B)
+	NumberOfPoints uint8
 
 	// StartAngle The angle data corresponding to the first sample point in the sampled data
-	StartAngle uint16 // FSA(2B)
+	// FSA(2B)
+	StartAngle uint16
 
 	// EndAngle The angle data corresponding to the last sample point in the sampled data
-	EndAngle uint16 // LSA(2B)
+	// LSA(2B)
+	EndAngle uint16
 
 	// CheckCode The check code of the current data packet uses a two-byte exclusive OR to check the current data packet.
-	CheckCode uint16 // CS(2B)
-
-	// Don't need to parse this data in the header.
-	//// SampleData of the system test is the distance data of the sampling point,
-	//// and the interference flag is also integrated in the LSB of the Si node
-	//SampleData [3]byte // Si(3B)
-
+	// CS(2B)
+	CheckCode uint16
 }

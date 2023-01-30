@@ -15,7 +15,7 @@ build_go_application:
 
 build_and_push_docker:
 	docker build -t $(DOCKER_REPO)/$(APP_NAME):$(TAG) .
-	docker push $(DOCKER_REPO)/$(APP_NAME):$(TAG)
+#	docker push $(DOCKER_REPO)/$(APP_NAME):$(TAG)
 
 update-go-deps:
 	@echo ">> updating Go dependencies"

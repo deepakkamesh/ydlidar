@@ -16,14 +16,14 @@ import (
 func main() {
 
 	// TODO read in from config file with option to remain nil
-	devicePort := "/dev/ttyUSB0"
+	var devicePort *string
 
-	lidar, err := InitAndConnectToDevice(&devicePort)
+	lidar, err := InitAndConnectToDevice(devicePort)
 	if err != nil {
 		log.Panic(err)
 	}
 
-	lidar.StartScan()
+	go lidar.StartScan()
 
 	// Start an HTTP service to serve up point cloud as a jpg image.
 	img := image.NewRGBA(image.Rect(0, 0, 2048, 2048))
@@ -42,7 +42,7 @@ func main() {
 			`)
 
 		if _, err := w.Write(str); err != nil {
-			log.Fatalf("Unable to write image: %v", err)
+			log.Panicf("Unable to write image: %v", err)
 		}
 	})
 
@@ -54,6 +54,7 @@ func main() {
 		}
 	})
 	go func() {
+		log.Printf("Starting HTTP server on port 1337")
 		log.Print(http.ListenAndServe(":1337", nil))
 	}()
 
@@ -63,9 +64,7 @@ func main() {
 	// Loop to read data from channel and construct image.
 	for {
 		packet := <-lidar.Packets
-		//if packet.Error != nil {
-		//	panic(packet.Error)
-		//}
+		log.Printf("Packet type: %d", packet)
 
 		// ZeroPt indicates one revolution of lidar. Update image
 		// every 10 revolutions.
@@ -75,7 +74,7 @@ func main() {
 				revs = 0
 				buff.Reset()
 				if err := jpeg.Encode(buff, img, &jpeg.Options{Quality: 70}); err != nil {
-					fmt.Printf("%v", err)
+					log.Panicf("%v", err)
 				}
 				img = image.NewRGBA(image.Rect(0, 0, 2048, 2048))
 			}
