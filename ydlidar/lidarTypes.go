@@ -107,12 +107,12 @@ type pointCloudHeader struct {
 	// PH(2B)
 	PacketHeader uint16
 
-	// FrequencyAndPackageType F(bit7:1): represents the scanning frequency of the lidar at the current moment,
+	// PackageType F(bit7:1): represents the scanning frequency of the lidar at the current moment,
 	// the value is valid in the initial data packet, and the value is 0 by default in the
 	// point cloud data packet; C(bit0): represents the type of the current data packet;
 	// 0x00: Point cloud data package 0x01: Start data package
 	// F&C (1B) [0 0 0 0 0 0 0 0]
-	FrequencyAndPackageType uint8
+	PackageType uint8
 
 	// SamplingQuality Indicates the number of sampling points contained in the current packet. There is only one zero point of data in the zero packet. The value is 1.
 	// LSN(1B)
