@@ -391,13 +391,13 @@ func (lidar *YDLidar) StartScan() {
 			// TODO Create distance conversion function.
 			// TODO Hoist conversions to separate function.
 			//////////////////////////////////Intensity Calculations//////////////////////////////////
-			intensities := make([]float32, sampleLength)
+			//intensities := make([]float32, sampleLength)
 			for i := uint8(0); i < pointCloud.SampleQuantity; i++ {
 				log.Printf("readings[%v]: %v", i, readings[i])
 			}
 
 			//////////////////////////////Distance Calculations//////////////////////////////////
-			// Convert readings to millimeters (divide by 4) and store in distances. // not right for G4
+			// Convert readings to millimeters (divide by 4) and store in distances. // not right for G2
 			distances := make([]float32, sampleLength)
 			for i := uint8(0); i < pointCloud.SampleQuantity; i++ {
 				log.Printf("readings[%v]: %v", i, readings[i])
@@ -542,8 +542,6 @@ func (lidar *YDLidar) Close() error {
 
 // CalculateAngles will shut down the connection.
 func (lidar *YDLidar) CalculateAngles(distances []float32, endAngle uint16, startAngle uint16, sampleQuantity uint8) (float32, float32, float32) {
-	log.Printf("CALCULATING ANGLES")
-	log.Printf("DISTANCES: %v", distances)
 
 	// Calculate angles.
 	angleCorFSA := angleCorrection(distances[0])
