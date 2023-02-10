@@ -1,6 +1,8 @@
+// Uses mock serial interface to simulate lidar.
 package main
 
 import (
+	"fmt"
 	"log"
 	. "ydlidar/ydlidar"
 )
@@ -14,15 +16,8 @@ func main() {
 	if err != nil {
 		log.Panic(err)
 	}
+	lidar.StartScan()
 
-	go lidar.StartScan()
 
-	// Loop to read data from channel
-	for {
-		packet := <-lidar.Packets
-		for _, v := range GetPointCloud(packet) {
-			// print the packet
-			log.Println(v)
-		}
 	}
 }

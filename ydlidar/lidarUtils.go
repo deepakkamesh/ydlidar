@@ -1,3 +1,4 @@
+// Package ydlidar this lidar outputs bytes in little endian format
 package ydlidar
 
 import (
@@ -74,12 +75,12 @@ func GetSerialPort(ttyPort *string) (serial.Port, error) {
 			return nil, err
 		}
 
-		err = currentPort.SetDTR(true)
-		if err != nil {
-			return nil, err
-		}
+		//err = currentPort.SetDTR(true)
+		//if err != nil {
+		//	return nil, err
+		//}
 
-		log.Print("Connected to port: ", *ttyPort)
+		log.Printf("Connected to port: %v", ttyPort)
 
 		return currentPort, nil
 	}
@@ -166,7 +167,7 @@ func (lidar *YDLidar) DeviceInfo() (*string, error) {
 		return nil, err
 	}
 
-	sizeOfMessage, typeCode, mode, err := readInfoHeader(lidar.SerialPort)
+	sizeOfMessage, typeCode, mode, err := lidar.readInfoHeader()
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +215,7 @@ func (lidar *YDLidar) HealthInfo() (*string, error) {
 		return nil, err
 	}
 
-	sizeOfMessage, typeCode, mode, err := readInfoHeader(lidar.SerialPort)
+	sizeOfMessage, typeCode, mode, err := lidar.readInfoHeader()
 	if err != nil {
 		return nil, err
 	}
@@ -244,9 +245,9 @@ func (lidar *YDLidar) HealthInfo() (*string, error) {
 }
 
 // readInfoHeader reads and validate header response.
-func readInfoHeader(devicePort serial.Port) (sizeOfMessage byte, typeCode byte, mode byte, err error) {
+func (lidar *YDLidar) readInfoHeader() (sizeOfMessage byte, typeCode byte, mode byte, err error) {
 	header := make([]byte, 7)
-	numBytesInHeader, err := devicePort.Read(header)
+	numBytesInHeader, err := lidar.SerialPort.Read(header)
 
 	if err != nil {
 		return 0, 0, 0, err
@@ -263,12 +264,17 @@ func readInfoHeader(devicePort serial.Port) (sizeOfMessage byte, typeCode byte, 
 		return 0, 0, 0, fmt.Errorf("invalid header. Expected startSign 0x5AA5 got %x", startSign)
 	}
 
+	// sizeOfMessage is the lower 6 bits of the 6th byte
 	sizeOfMessage = header[2]
 	//log.Printf("size of message: %v", sizeOfMessage)
 
 	typeCode = header[6]
 	//log.Printf("type code: %v", typeCode)
 
+	lower := header
+	print("LOWER IS LOWER IS LOWER: ", lower, "\n")
+
+	// the last number is the position of the byte eg. "...& 0xC0 >> 6", the 6 means the 6th byte
 	mode = header[5] & 0xC0 >> 6
 	//log.Printf("mode: %v", mode)
 
@@ -278,18 +284,15 @@ func readInfoHeader(devicePort serial.Port) (sizeOfMessage byte, typeCode byte, 
 // StartScan starts up the scanning and data acquisition.
 // see startScan for more details.
 func (lidar *YDLidar) StartScan() {
-	continuousResponse := byte(1)
 
 	// Send start scanning command to device.
-	log.Printf("starting scan")
 	if _, err := lidar.SerialPort.Write([]byte{preCommand, startScanning}); err != nil {
 		lidar.sendErr(fmt.Errorf("failed to start scan: %v", err))
 		return
 	}
 
-	// Read and validate initial scan header.
-	log.Printf("reading scan header")
-	sizeOfMessage, typeCode, responseMode, err := readInfoHeader(lidar.SerialPort)
+	//Read and validate initial scan header.
+	_, typeCode, responseMode, err := lidar.readInfoHeader()
 	switch {
 	case err != nil:
 		err = fmt.Errorf("read header failed: %v", err)
@@ -297,214 +300,188 @@ func (lidar *YDLidar) StartScan() {
 	case typeCode != ScanTypeCode: // 0x81
 		err = fmt.Errorf("invalid type code. Expected %x, got %v. Mode: %x", ScanTypeCode, typeCode, responseMode)
 
-	case responseMode != continuousResponse: // 1
+	case responseMode != ContinuousResponse: // 0x1
 		err = fmt.Errorf("expected continuous response mode, got %v", responseMode)
-
-	case sizeOfMessage != 5:
-		err = fmt.Errorf("invalid size of header message. Expected %v, got %v", 5, sizeOfMessage)
 	}
 	if err != nil {
 		lidar.sendErr(err)
 		return
 	}
 
-	log.Printf("Inital Header Message Size: %v", sizeOfMessage)
+	log.Print("Scan Command Response: GOOD")
 
 	// Start loop to read distance samples.
 	for {
 
 		select {
-		case <-lidar.Stop:
-			log.Printf("stopping scan")
-			return
-
 		default:
-			var rev int
+
+			/////////////////////HEADER/////////////////////////////////////////////
 			var numBytesScanPointCloud int
+			scanPacketSize := 10
 
 			// Read the scan packet initial header.
-			log.Printf("reading scan packet header")
-			scanPacketHeaderSlice := make([]byte, 10)
-			numBytesScanPointCloud, err = lidar.SerialPort.Read(scanPacketHeaderSlice)
+			scanPacketHeaderSlice := make([]byte, scanPacketSize)
+			numBytesScanPointCloud, err := lidar.SerialPort.Read(scanPacketHeaderSlice)
 			if byte(numBytesScanPointCloud) != 10 {
-				lidar.sendErr(fmt.Errorf("start Scan: not enough bytes in header. Expected %v got %v", 10, numBytesScanPointCloud))
-				continue
+				log.Printf("not enough bytes in header. Expected %v got %v", scanPacketSize, numBytesScanPointCloud)
 			}
 			if err != nil {
 				lidar.sendErr(fmt.Errorf("failed to read serial %v", err))
-				continue
 			}
 
-			pointCloudHeader := pointCloudHeader{}
+			pointCloud := pointCloudHeader{}
 			// Unpack the scan packet header into the pointCloudHeader struct.
-			scanPacketHeaderBuffer := bytes.NewBuffer(scanPacketHeaderSlice)
-			if err = binary.Read(scanPacketHeaderBuffer, binary.LittleEndian, &pointCloudHeader); err != nil {
+			readingsBuffer := bytes.NewBuffer(scanPacketHeaderSlice)
+			if err = binary.Read(readingsBuffer, binary.LittleEndian, &pointCloud); err != nil {
 				lidar.sendErr(fmt.Errorf("failed to pack struct: %v", err))
 				continue
 			}
 
-			testingBytes := int(pointCloudHeader.PackageType)
+			// Returns scan data in a human readable format.
+			scanningFrequency, dataPacketType, sampleQuantity, startAngle, endAngle := lidar.extractScanPacket(pointCloud)
 
-			if testingBytes == 5 {
-				log.Printf("Should see this every scan")
-				log.Printf("POINT CLOUD FREQUENCY AND PACKAGE TYPE: %v", pointCloudHeader.PackageType)
+			switch dataPacketType {
+			case 0x0:
+				//There is only one zero point of data in the zero packet. The sampleQuantity is 1
+				log.Printf("START DATA PACKET")
+				if sampleQuantity != 1 {
+					log.Printf("START DATA PACKET: sample quantity should be 1, got %v", sampleQuantity)
+				}
+				log.Printf("Scanning Frequency: %vHz", scanningFrequency)
+
+			case 0x1:
+				log.Printf("POINT CLOUD DATA PACKET")
+				if sampleQuantity <= 0 {
+					log.Printf("POINT CLOUD DATA PACKET: sample quantity should be greater than 0, got %v", sampleQuantity)
+				}
+				log.Print("Scanning Frequency is invalid in this packet")
 			}
 
-			// Read the point cloud content.
-
-			packetLength := int(pointCloudHeader.NumberOfPoints) * 2
-
-			scanPointCloudSlice := make([]byte, packetLength)
-			numBytesScanPointCloud, err = lidar.SerialPort.Read(scanPointCloudSlice)
+			/////////////////////////LUMINOSITY, DISTANCE, AND ANGLES/////////////////////////////////////
+			sampleLength := int(sampleQuantity) * 3 // 3 bytes per sample
+			rawContent := make([]byte, sampleLength)
+			numBytesScanPointCloud, err = lidar.SerialPort.Read(rawContent)
 			if err != nil {
-				lidar.sendErr(fmt.Errorf("failed to read serial %v", err))
+				log.Print(fmt.Errorf("failed to read serial %v", err))
 				continue
 			}
 
-			if numBytesScanPointCloud != packetLength {
-				lidar.sendErr(fmt.Errorf("start Scan Sampling Quality: not enough bytes. Expected %v got %v", packetLength, numBytesScanPointCloud))
+			if numBytesScanPointCloud != sampleLength {
+				log.Print(fmt.Errorf("Start Scan Sampling Quality: not enough bytes. Expected %v got %v", sampleLength, numBytesScanPointCloud))
 				continue
 			}
 
-			// Make a slice to hold the distanceReadings.
-			distanceReadings := make([]int16, pointCloudHeader.NumberOfPoints)
-
-			scanPacketHeaderBuffer = bytes.NewBuffer(scanPointCloudSlice)
-			if err = binary.Read(scanPacketHeaderBuffer, binary.LittleEndian, &distanceReadings); err != nil {
-				lidar.sendErr(fmt.Errorf("failed to pack struct: %v", err))
+			// Unpack the rawContent into the readings slice.
+			readings := make([]byte, sampleLength)
+			readingsBuffer = bytes.NewBuffer(rawContent)
+			if err = binary.Read(readingsBuffer, binary.LittleEndian, &readings); err != nil {
+				log.Panic(fmt.Errorf("failed to pack struct: %v", err))
 				continue
 			}
 
 			// Check Scan Packet Type.
-			err = checkScanPacket(scanPacketHeaderSlice, scanPointCloudSlice, pointCloudHeader.CheckCode)
+			err = checkScanPacket(scanPacketHeaderSlice, rawContent)
 			if err != nil {
 				log.Printf(err.Error())
 				continue
 			}
 
+			// TODO Create intensity conversion function.
+			// TODO Create distance conversion function.
 			// TODO Hoist conversions to separate function.
-			// Check for sane number of packets.
-			if pointCloudHeader.NumberOfPoints <= 0 {
-				continue
+			//////////////////////////////////Intensity Calculations//////////////////////////////////
+			intensities := make([]float32, sampleLength)
+			for i := uint8(0); i < pointCloud.SampleQuantity; i++ {
+				log.Printf("readings[%v]: %v", i, readings[i])
 			}
 
-			// Convert distanceReadings to millimeters (divide by 4).
-			distances := make([]float32, pointCloudHeader.NumberOfPoints) // NUMBER POINTS IS INCORRECT ASSIGNMENT
-			for i := uint8(0); i < pointCloudHeader.NumberOfPoints; i++ {
-				distances[i] = float32(distanceReadings[i]) / 4
+			//////////////////////////////Distance Calculations//////////////////////////////////
+			// Convert readings to millimeters (divide by 4) and store in distances. // not right for G4
+			distances := make([]float32, sampleLength)
+			for i := uint8(0); i < pointCloud.SampleQuantity; i++ {
+				log.Printf("readings[%v]: %v", i, readings[i])
 			}
+			/////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-			// Calculate angles.
-			angleCorFSA := angleCorrection(distances[0])
-			angleFSA := float32(pointCloudHeader.StartAngle>>1)/64 + angleCorFSA
-
-			angleCorLSA := angleCorrection(distances[pointCloudHeader.NumberOfPoints-1])
-			angleLSA := float32(pointCloudHeader.EndAngle>>1)/64 + angleCorLSA
-
-			// Calculate angle delta.
-			var angleDelta float32
-			switch {
-			case angleLSA > angleFSA:
-				angleDelta = angleLSA - angleFSA
-			case angleLSA < angleFSA:
-				angleDelta = 360 + angleLSA - angleFSA
-			case angleLSA == angleFSA:
-				angleDelta = 0
-			}
-
-			log.Printf("READINGS: %x", distanceReadings)
-
-			log.Printf("BUFFER: %v", scanPacketHeaderSlice)
-
-			startCode := scanPacketHeaderSlice[0:2]
-			// convert startCode to readable text
-			log.Printf("Hex Start Code: %X", binary.LittleEndian.Uint16(startCode))
-
-			ScanOrFreq := scanPacketHeaderSlice[2:3]
-			// convert ScanOrFreq to readable text
-			log.Printf("Hex Scan or Freq: %08b", ScanOrFreq)
-
-			FreqOrScan := scanPacketHeaderSlice[3:4]
-			// convert FreqOrScan to readable text
-			log.Printf("Hex Freq or Scan: %X", FreqOrScan)
-
-			startAngle := scanPacketHeaderSlice[4:6]
-			// convert startAngle to readable text
-
-			log.Printf("Hex Start Angle: %X", startAngle)
-
-			endAngle := scanPacketHeaderSlice[6:8]
-			// convert endAngle to readable text
-			log.Printf("Hex End Angle: %X", endAngle)
-
-			CheckCode := scanPacketHeaderSlice[8:10]
-			// convert CheckCode to readable text
-			log.Printf("Hex Check Code: %X", CheckCode)
-
-			log.Printf("Number of Samples: %v\n", int(pointCloudHeader.NumberOfPoints))
-			log.Printf("Packet Header: %x\n", pointCloudHeader.PacketHeader)
-			log.Printf("Distances: %v\n", distances)
-			log.Printf("Angle Delta: %v\n", angleDelta)
+			angleFSA, angleLSA, angleDelta := lidar.CalculateAngles(distances, startAngle, endAngle, sampleQuantity)
 
 			lidar.Packets <- Packet{
-				MinAngle:           angleFSA,
-				MaxAngle:           angleLSA,
+				FirstAngle:         angleFSA,
+				LastAngle:          angleLSA,
 				DeltaAngle:         angleDelta,
-				NumDistanceSamples: int(pointCloudHeader.NumberOfPoints),
+				NumDistanceSamples: int(pointCloud.SampleQuantity),
 				Distances:          distances,
-				PacketType:         uint16(int(pointCloudHeader.PackageType)),
+				PacketType:         int(pointCloud.PackageType),
 				Error:              err,
 			}
 
-			rev = rev + 1
-			if rev/50 == 1 {
-				log.Printf("REVS: %v", rev)
-			}
+		case <-lidar.Stop:
+			log.Printf("STOPPING SCAN")
+			return
 		}
+
 	}
+}
+
+func (lidar *YDLidar) extractScanPacket(pointCloud pointCloudHeader) (uint8, uint8, uint8, uint16, uint16) {
+	// separate the least significant bit from the rest of the bits in pointCloudHeader.PackageType
+	//packetHeader := pointCloud.PacketHeader
+
+	scanningFrequency := ((pointCloud.PackageType >> 1) & 0x7F) / 10
+
+	dataPacketType := pointCloud.PackageType & 0x01
+
+	sampleQuantity := pointCloud.SampleQuantity
+
+	startAngle := pointCloud.StartAngle
+	endAngle := pointCloud.EndAngle
+
+	//checkCode := pointCloud.CheckCode
+	//if packetHeader != 0x55AA {
+	//	log.Printf("Start Scan Packet Header: not enough bytes. Expected %v got %v", 0x55AA, packetHeader)
+	//}
+
+	return scanningFrequency, dataPacketType, sampleQuantity, startAngle, endAngle
 }
 
 // checkScanPacket validates the type of the packet.
 // https://www.robotshop.com/media/files/content/y/ydl/pdf/ydlidar_x4_development_manual.pdf pg 6.
-func checkScanPacket(header []byte, data []byte, checkCode uint16) error {
-	log.Printf("CHECKING SCAN PACKET with CHECKCODE: %x\n\n\n", checkCode)
+func checkScanPacket(scanPacketHeaderSlice []byte, scanPointCloudSlice []byte) error {
 
-	// Make a slice big enough to hold header (minus CRC) and data.
-	dataPacket := make([]uint16, 4+len(data)/2)
+	// Make a slice big enough to hold scanPacketHeaderSlice (minus CRC) and scanPointCloudSlice.
+	dataPacket := make([]uint16, 4+len(scanPointCloudSlice)/3)
 
-	bufferedData := bytes.NewBuffer(append(header[:8], data...))
+	bufferedData := bytes.NewBuffer(append(scanPacketHeaderSlice[:8], scanPointCloudSlice...))
 
-	// Read the data packet into the bufferedData.
+	// Read the scanPointCloudSlice packet into the bufferedData.
 	err := binary.Read(bufferedData, binary.LittleEndian, &dataPacket)
 	if err != nil {
 		return fmt.Errorf("failed to pack struct: %v", err)
 	}
-	mode := header[5] & 0xC0 >> 6
-
-	log.Printf("MODE: %x", mode)
-	log.Printf("HEADER: %x", header[:8]) // Header is the first 8 bytes.
-	log.Printf("SAMPLE QUANTITY: %x", header[3:4])
-	log.Printf("DATA PACKET: %x\n\n\n", dataPacket)
 
 	// Calculate Xor of all bits.
-	x := uint16(0)
-	for i := 0; i < len(dataPacket); i++ {
-		x ^= dataPacket[i]
-	}
+	var checkSum uint16
+	for _, x := range dataPacket {
 
-	if byte(x) != byte(checkCode) {
-		return fmt.Errorf("CRC failed. Ignoring data packet")
+		checkSum ^= x
+		// print out the XOR of all the bits and result
+		log.Printf("XOR of all bits: %X", checkSum)
 	}
+	//
+	//if byte(x) != byte(checkCode) {
+	//	return fmt.Errorf("CRC failed. Ignoring scanPointCloudSlice packet\n\n\n")
+	//}
 	return nil
 }
 
 // GetPointCloud returns point-cloud (angle, dist) from the data packet.
-func GetPointCloud(packet Packet) (pointClouds []PointCloud) {
+func GetPointCloud(packet Packet) (pointClouds []PointCloudData) {
 	// Zero Point packet.
 	if packet.PacketType == 1 {
 		pointClouds = append(pointClouds,
-			PointCloud{
-				Angle: packet.MinAngle,
+			PointCloudData{
+				Angle: packet.FirstAngle,
 				Dist:  packet.Distances[0],
 			})
 		return
@@ -512,9 +489,9 @@ func GetPointCloud(packet Packet) (pointClouds []PointCloud) {
 
 	for i, _ := range packet.Distances {
 		dist := packet.Distances[i]
-		angle := packet.DeltaAngle/float32(packet.NumDistanceSamples-1)*float32(i) + packet.MinAngle + angleCorrection(dist)
+		angle := packet.DeltaAngle/float32(packet.NumDistanceSamples-1)*float32(i) + packet.FirstAngle + angleCorrection(dist)
 		pointClouds = append(pointClouds,
-			PointCloud{
+			PointCloudData{
 				Angle: angle,
 				Dist:  dist,
 			})
@@ -530,20 +507,14 @@ func angleCorrection(dist float32) float32 {
 	return float32(180 / math.Pi * math.Atan(21.8*(155.3-float64(dist))/(155.3*float64(dist))))
 }
 
-// StopScan TODO: Need to flush the serial buffer when done.
-// StopScan stops the lidar scans.
+// StopScan stops the lidar scans, flushes the buffers and closes the serial port.
 func (lidar *YDLidar) StopScan() error {
 	log.Printf("Stopping scan")
 	if _, err := lidar.SerialPort.Write([]byte{preCommand, stopScanning}); err != nil {
 		return err
 	}
 	lidar.Stop <- struct{}{}
-	//lidar.SerialPort.ResetOutputBuffer()
-	//lidar.SerialPort.ResetInputBuffer()
-	err := lidar.SerialPort.Close()
-	if err != nil {
-		return err
-	}
+	lidar.SerialPort.ResetOutputBuffer()
 	return nil
 
 }
@@ -558,6 +529,7 @@ func (lidar *YDLidar) sendErr(err error) {
 // Reboot soft reboots the lidar.
 func (lidar *YDLidar) Reboot() error {
 	if _, err := lidar.SerialPort.Write([]byte{preCommand, restartDevice}); err != nil {
+		log.Print("Error sending reboot command: ", err)
 		return err
 	}
 	return nil
@@ -566,4 +538,31 @@ func (lidar *YDLidar) Reboot() error {
 // Close will shut down the connection.
 func (lidar *YDLidar) Close() error {
 	return lidar.SerialPort.Close()
+}
+
+// CalculateAngles will shut down the connection.
+func (lidar *YDLidar) CalculateAngles(distances []float32, endAngle uint16, startAngle uint16, sampleQuantity uint8) (float32, float32, float32) {
+	log.Printf("CALCULATING ANGLES")
+	log.Printf("DISTANCES: %v", distances)
+
+	// Calculate angles.
+	angleCorFSA := angleCorrection(distances[0])
+	angleFSA := float32(startAngle>>1)/64 + angleCorFSA
+
+	angleCorLSA := angleCorrection(distances[sampleQuantity-1])
+	angleLSA := float32(endAngle>>1)/64 + angleCorLSA
+
+	// Calculate angle delta.
+	var angleDelta float32
+	switch {
+	case angleLSA > angleFSA:
+		angleDelta = angleLSA - angleFSA
+	case angleLSA < angleFSA:
+		angleDelta = 360 + angleLSA - angleFSA
+	case angleLSA == angleFSA:
+		angleDelta = 0
+	}
+
+	return angleFSA, angleLSA, angleDelta
+
 }

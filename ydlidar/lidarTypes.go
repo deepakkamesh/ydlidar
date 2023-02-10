@@ -39,47 +39,50 @@ type G6 struct {
 
 const (
 	// preCommand is the command to send before sending any other command.
-	preCommand = 0xA5 // verified
+	preCommand = 0xA5
 
 	// healthStatus is the command to get the health status.
-	healthStatus = 0x92 // verified
+	healthStatus = 0x92
 
 	// deviceInfo is the command to get the device information.
-	deviceInfo = 0x90 // verified
+	deviceInfo = 0x90
 
 	// resetDevice is the command to reset the device.
-	restartDevice = 0x40 // verified
+	restartDevice = 0x40
 
 	// stopScanning is the command to stop scanning.
-	stopScanning = 0x65 // verified
+	stopScanning = 0x65
 
 	// startScanning is the command to start scanning.
-	startScanning = 0x60 // verified
+	startScanning = 0x60
 
 	// HealthTypeCode is the device response Health HealthInfo type code.
-	HealthTypeCode = 0x06 //verified
+	HealthTypeCode = 0x06
 
 	// InfoTypeCode is the device response Device Information type code.
-	InfoTypeCode = 0x04 //verified
+	InfoTypeCode = 0x04
 
 	// ScanTypeCode is the device response Scan Command type code.
-	ScanTypeCode = 0x81 // verified
+	ScanTypeCode = 0x81
+
+	SingleResponse     = 0x0
+	ContinuousResponse = 0x1
 )
 
-// PointCloud represents a single lidar reading.
-type PointCloud struct {
+// PointCloudData represents a single lidar reading.
+type PointCloudData struct {
 	Angle float32
 	Dist  float32
 }
 
-// Packet represents struct of a single sample set of readings.
+// Packet represents struct of a single sample set of readings as translated by this application
 type Packet struct {
-	MinAngle           float32   // Minimum angle corresponds to first distance sample.
-	MaxAngle           float32   // Max angle corresponds to last distance sample.
+	FirstAngle         float32   // First/Minimum angle corresponds to first distance sample.
+	LastAngle          float32   // Last/Max angle corresponds to last distance sample.
 	DeltaAngle         float32   // Delta between Min and Max Angles.
 	NumDistanceSamples int       // Number of distance samples.
 	Distances          []float32 // Slice containing distance data.
-	PacketType         uint16    // Indicates the current packet type. 0x00: Point cloud packet 0x01: Zero packet.
+	PacketType         int       // Indicates the current packet type. 0x00: Point cloud packet 0x01: Zero packet.
 	Error              error
 }
 
@@ -101,7 +104,7 @@ type DeviceInfoString struct {
 	Serial   string // Serial number.
 }
 
-// pointCloudHeader is the preamble for the point cloud data.
+// pointCloudHeader is the preamble for the point cloud data from the lidar
 type pointCloudHeader struct {
 	// PacketHeader 2B in length, fixed at 0x55AA, low in front, high in back
 	// PH(2B)
@@ -114,9 +117,9 @@ type pointCloudHeader struct {
 	// F&C (1B) [0 0 0 0 0 0 0 0]
 	PackageType uint8
 
-	// SamplingQuality Indicates the number of sampling points contained in the current packet. There is only one zero point of data in the zero packet. The value is 1.
+	// SampleQuantity Indicates the number of sampling points contained in the current packet. There is only one zero point of data in the zero packet. The value is 1.
 	// LSN(1B)
-	NumberOfPoints uint8
+	SampleQuantity uint8
 
 	// StartAngle The angle data corresponding to the first sample point in the sampled data
 	// FSA(2B)
@@ -129,4 +132,8 @@ type pointCloudHeader struct {
 	// CheckCode The check code of the current data packet uses a two-byte exclusive OR to check the current data packet.
 	// CS(2B)
 	CheckCode uint16
+	//
+	//Si []int16 // Sample data
+	//
+	//Angle []float64 // Angle data
 }
