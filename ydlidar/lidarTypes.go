@@ -132,8 +132,4 @@ type pointCloudHeader struct {
 	// CheckCode The check code of the current data packet uses a two-byte exclusive OR to check the current data packet.
 	// CS(2B)
 	CheckCode uint16
-	//
-	//Si []int16 // Sample data
-	//
-	//Angle []float64 // Angle data
 }
