@@ -148,8 +148,7 @@ func (lidar *YDLidar) SetupCloseHandler() {
 		if err != nil {
 			return
 		}
-
-		lidar.Reboot()
+		lidar.SerialPort.ResetOutputBuffer()
 
 		os.Exit(0)
 
@@ -359,21 +358,26 @@ func (lidar *YDLidar) StartScan() {
 				log.Printf("Scanning Frequency: %vHz", scanningFrequency)
 
 				/////////////////////////LUMINOSITY, DISTANCE, AND ANGLES/////////////////////////////////////
-				sampleLength := int(sampleQuantity) * 3 // 3 bytes per sample
-				rawContent := make([]byte, sampleLength)
+				// 3 bytes per sample, ex. If sampleQuantity is 5, then numOfSamples is 15 because there are 5 samples and each sample is 3 bytes.
+				numOfSamples := int(sampleQuantity) * 3
+
+				// Read the raw content of the packet.
+				rawContent := make([]byte, numOfSamples)
 				numScanPacketHeaderBytes, err = lidar.SerialPort.Read(rawContent)
 				if err != nil {
 					log.Print(fmt.Errorf("failed to read serial %v", err))
 					continue
 				}
 
-				if numScanPacketHeaderBytes != sampleLength {
-					log.Print(fmt.Errorf("Start Scan Sampling Quality: not enough bytes. Expected %v got %v", sampleLength, numScanPacketHeaderBytes))
+				// Check if the number of bytes read is equal to the number of samples.
+				if numScanPacketHeaderBytes != numOfSamples {
+					log.Print(fmt.Errorf("Start Scan Sampling Quality: not enough bytes. Expected %v got %v", numOfSamples, numScanPacketHeaderBytes))
 					continue
 				}
 
 				// Unpack the rawContent into the readings slice.
-				readings := make([]byte, sampleLength)
+				// the outer slice is the number of samples, the inner slice is the number of bytes per sample
+				readings := make([]byte, numOfSamples) //
 				readingsBuffer = bytes.NewBuffer(rawContent)
 				if err = binary.Read(readingsBuffer, binary.LittleEndian, &readings); err != nil {
 					log.Panic(fmt.Errorf("failed to pack struct: %v", err))
@@ -387,25 +391,57 @@ func (lidar *YDLidar) StartScan() {
 					continue
 				}
 
-				// TODO Create intensity conversion function.
-				// TODO Create distance conversion function.
 				// TODO Hoist conversions to separate function.
+
+				// TODO Create intensity conversion function.
 				//////////////////////////////////Intensity Calculations//////////////////////////////////
-				//intensities := make([]float32, sampleLength)
-				for i := uint8(0); i < pointCloud.SampleQuantity; i++ {
-					log.Printf("readings[%v]: %X", i, readings[i])
+
+				bytes := readings
+
+				n := 3
+
+				// Si represents the number of samples.
+				// Split the readings slice into a slice of slices.
+				// Each slice is 3 bytes long.
+				// The outer slice is the number of samples.
+				// The inner slice is the number of bytes per sample.
+				splitReadings := make([][]byte, len(bytes)/n)
+				for Si := range splitReadings {
+					splitReadings[Si] = bytes[Si*n : (Si+1)*n]
+					// uint16(splitReadings[Si][0]) means we take the whole first byte of this grouping
+					// uint16(splitReadings[Si][1]&0x3) means...&0x3 leaves us with the low two bits of the 2nd byte.
+					intensity := (uint16(splitReadings[Si][0]) + uint16(splitReadings[Si][1]&0x3)) * 256
+					log.Printf("intensity: %v", intensity)
+
+					// Distance𝑖 = Lshiftbit(Si(3), 6) + Rshiftbit(Si(2), 2)
+					// This variable represents the distance in millimeters.
+					// uint16(splitReadings[Si][2]) << 6 means we take the whole third byte of this grouping and shift it 6 bits to the left.
+					// uint16(splitReadings[Si][1]) >> 2 means we take the whole second byte of this grouping and shift it 2 bits to the right.
+					distance := (uint16(splitReadings[Si][2]) << 6) + (uint16(splitReadings[Si][1]) >> 2)
+					log.Printf("distance: %vmm", distance)
 				}
 
+				//intensities := make([]float32, numOfSamples)
+				//for Si := uint8(0); Si < pointCloud.SampleQuantity; Si++ {
+				//	intensities[Si] = float32(readings[Si]) / 255
+				//	//log.Printf("intensities[%v]: %X", Si, intensities[Si])
+				//}
+
+				// TODO Create distance conversion function.
 				//////////////////////////////Distance Calculations//////////////////////////////////
 				// Convert readings to millimeters (divide by 4) and store in distances. // not right for G2
-				distances := make([]float32, sampleLength)
+				distances := make([]float32, numOfSamples)
 				for i := uint8(0); i < pointCloud.SampleQuantity; i++ {
-					log.Printf("readings[%v]: %v", i, readings[i])
+					//log.Printf("distances[%v]: %v", Si, readings[Si])
 				}
 				/////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+				// TODO Create angle conversion function.
+				//////////////////////////////Angle Calculations//////////////////////////////////
 				angleFSA, angleLSA, angleDelta := lidar.CalculateAngles(distances, pointCloud.StartAngle, pointCloud.EndAngle, sampleQuantity)
+				/////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+				// Send the packet to the channel.
 				lidar.Packets <- Packet{
 					FirstAngle:         angleFSA,
 					LastAngle:          angleLSA,
@@ -447,7 +483,11 @@ func (lidar *YDLidar) extractScanPacketHeader(pointCloud pointCloudHeader) (uint
 // https://www.robotshop.com/media/files/content/y/ydl/pdf/ydlidar_x4_development_manual.pdf pg 6.
 func checkScanPacket(scanPacketHeaderSlice []byte, scanPointCloudSlice []byte) error {
 
-	// Make a slice big enough to hold scanPacketHeaderSlice (minus CRC) and scanPointCloudSlice.
+	// Make a slice big enough to hold scanPacketHeaderSlice (minus the check code position) and scanPointCloudSlice.
+
+	// The check code uses a two-byte exclusive OR to verify the
+	// current data packet. The check code itself does not participate in
+	// XOR operations, and the XOR order is not strictly in byte order.
 	dataPacket := make([]uint16, 4+len(scanPointCloudSlice)/3)
 
 	bufferedData := bytes.NewBuffer(append(scanPacketHeaderSlice[:8], scanPointCloudSlice...))
@@ -512,7 +552,7 @@ func (lidar *YDLidar) StopScan() error {
 		return err
 	}
 	lidar.Stop <- struct{}{}
-	lidar.SerialPort.ResetOutputBuffer()
+	//lidar.SerialPort.ResetOutputBuffer()
 	return nil
 
 }
