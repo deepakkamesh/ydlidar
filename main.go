@@ -11,6 +11,8 @@ func main() {
 	var devicePort *string
 
 	lidar, err := InitAndConnectToDevice(devicePort)
+	defer lidar.StopScan()
+
 	if err != nil {
 		log.Panic(err)
 	}
