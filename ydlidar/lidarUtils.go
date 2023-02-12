@@ -439,6 +439,41 @@ func (lidar *YDLidar) StartScan() {
 						log.Printf("distance: %vmm", distance)
 					}
 
+					fakeS1 := []byte{0x64, 0xE5, 0x6F}
+
+					thisIntensity := uint16(fakeS1[0])
+					thatIntensity := uint16(fakeS1[1] & 3 << 8)
+					diffFakeIntensity := (thisIntensity + thatIntensity) * 256
+
+					if diffFakeIntensity == 356 {
+						log.Printf("diff fake intensity CORRECT: %v", diffFakeIntensity)
+					}
+					fakeIntensity := (uint16(fakeS1[0]) + uint16(fakeS1[1]&0x3)) * 256
+					if fakeIntensity == 356 {
+						log.Printf("fake intensity CORRECT: %v", fakeIntensity)
+					}
+					fakeDistance := (uint16(fakeS1[2]) << 6) + (uint16(fakeS1[1]) >> 2)
+					if fakeDistance == 7161 {
+						log.Printf("fake distance CORRECT: %v mm", fakeDistance)
+					}
+
+					fakeAngle := []byte{0x28, 0xE5, 0x6F, 0xBD, 0x79}
+					log.Printf("fake angle: %v", fakeAngle)
+
+					fakeLSN := fakeAngle[0] // correct
+
+					fakeFSAB1 := fakeAngle[1]                                  // correct
+					fakeFSAB2 := fakeAngle[2]                                  // correct
+					fakeRawFSA := (uint16(fakeFSAB2) << 8) | uint16(fakeFSAB1) // correct
+					log.Printf("fake RAW FSA2: 0x%X\n ", fakeRawFSA)
+					fakeReadableFSA := float32(fakeRawFSA>>1) / 64
+					log.Printf("fake READABLE FSA2: 0x%v", fakeReadableFSA)
+					//
+					fakeLSA := fakeAngle[3] + fakeAngle[4]
+
+					log.Print("fake LSN: ", fakeLSN)
+					log.Print("fake LSA: ", fakeLSA)
+
 					// TODO Create angle conversion function.
 					//////////////////////////////Angle Calculations//////////////////////////////////
 					angleFSA, angleLSA, angleDelta := lidar.CalculateAngles(distances, pointCloud.StartAngle, pointCloud.EndAngle, sampleQuantity)
