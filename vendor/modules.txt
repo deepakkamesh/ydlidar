@@ -1,6 +1,15 @@
 # github.com/creack/goselect v0.1.2
 ## explicit; go 1.13
 github.com/creack/goselect
+# github.com/davecgh/go-spew v1.1.1
+## explicit
+github.com/davecgh/go-spew/spew
+# github.com/pmezard/go-difflib v1.0.0
+## explicit
+github.com/pmezard/go-difflib/difflib
+# github.com/stretchr/testify v1.8.1
+## explicit; go 1.13
+github.com/stretchr/testify/assert
 # go.bug.st/serial v1.5.0
 ## explicit; go 1.17
 go.bug.st/serial
@@ -10,3 +19,6 @@ go.bug.st/serial/unixutils
 golang.org/x/sys/internal/unsafeheader
 golang.org/x/sys/unix
 golang.org/x/sys/windows
+# gopkg.in/yaml.v3 v3.0.1
+## explicit
+gopkg.in/yaml.v3
