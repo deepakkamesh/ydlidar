@@ -71,7 +71,7 @@ const (
 
 // PointCloudData represents a single lidar reading.
 type PointCloudData struct {
-	Intensity uint16
+	Intensity int
 	Dist      uint16
 	Angle     float32
 }
@@ -83,7 +83,7 @@ type Packet struct {
 	DeltaAngle         float32  // Delta between Min and Max Angles.
 	NumDistanceSamples int      // Number of distance samples.
 	Distances          []uint16 // Slice containing distance data.
-	Intensities        []uint16 // Slice containing intensity data.
+	Intensities        []int    // Slice containing intensity data.
 	PacketType         uint8    // Indicates the current packet type. 0x00: Point cloud packet 0x01: Zero packet.
 	Error              error
 }
