@@ -72,20 +72,21 @@ const (
 // PointCloudData represents a single lidar reading.
 type PointCloudData struct {
 	Intensity int
-	Dist      uint16
+	Dist      float32
 	Angle     float32
 }
 
 // Packet represents struct of a single sample set of readings as translated by this application
 type Packet struct {
-	FirstAngle         float32  // First/Minimum angle corresponds to first distance sample.
-	LastAngle          float32  // Last/Max angle corresponds to last distance sample.
-	DeltaAngle         float32  // Delta between Min and Max Angles.
-	NumDistanceSamples int      // Number of distance samples.
-	Distances          []uint16 // Slice containing distance data.
-	Intensities        []int    // Slice containing intensity data.
-	PacketType         uint8    // Indicates the current packet type. 0x00: Point cloud packet 0x01: Zero packet.
-	Error              error
+	FirstAngle         float32   // First/Minimum angle corresponds to first distance sample.
+	LastAngle          float32   // Last/Max angle corresponds to last distance sample.
+	DeltaAngle         float32   // Delta between Min and Max Angles.
+	NumDistanceSamples int       // Number of distance samples.
+	Distances          []float32 // Slice containing distance data.
+	Intensities        []int     // Slice containing intensity data.
+	PacketType         uint8     // Indicates the current packet type. 0x00: Point cloud packet 0x01: Zero packet.
+	Angles             []float32 // Slice containing angle data.
+	Error              error     // Error if any.
 }
 
 // DeviceInfo Works with G2

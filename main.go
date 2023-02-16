@@ -24,7 +24,7 @@ func main() {
 		packet := <-lidar.Packets
 		for _, v := range GetPointCloud(packet) {
 			// print the packet
-			log.Println(v)
+			log.Printf("Angle: %v Dist: %v Intensity: %v", v.Angle, v.Dist, v.Intensity)
 		}
 	}
 }

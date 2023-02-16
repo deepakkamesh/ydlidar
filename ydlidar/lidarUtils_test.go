@@ -44,9 +44,11 @@ func TestIntensityCalculation(t *testing.T) {
 
 func TestAngleAnalysis(t *testing.T) {
 	// Sample data
-	lsn := 40       // 40 samples
-	fsa := 0x6FE5   // 223.78125
-	lsa := 0x79BD   // 243.46875
+	lsn := 40 // 40 samples
+
+	fsa := 0x6FE5 // 223.78125
+	lsa := 0x79BD // 243.46875
+
 	dist1 := 1000   // 1000mm
 	distLsn := 8000 // 8000mm
 
@@ -88,38 +90,3 @@ func TestAngleAnalysis(t *testing.T) {
 	expectedAngles := []float64{217.0178, 219.2851, 221.5524, 223.8197, 226.0870, 228.3543, 230.6216, 232.8889, 235.1562, 237.4235, 239.6908, 241.9581, 244.2254, 246.4927, 248.7600, 251.0273, 253.2946, 255.5619, 257.8292, 260.0965, 262.3638, 264.6311, 266.8984, 269.1657, 271.4330, 273.7003, 275.9676, 278.2349, 280.5022, 282.7695, 285.0368, 287.3041, 289.5714, 291.8387, 294.1060, 296.3733, 298.6406, 300.9079, 303.1752}
 	assert.InDeltaSlice(t, expectedAngles, angles, 0.0001)
 }
-
-//func TestAngleCalculation(t *testing.T) {
-//	// Contains angle data (LSA and FSA) and the first byte is the sample length
-//	testAngle := []byte{0x28, 0xE5, 0x6F, 0xBD, 0x79}
-//
-//	expectedLSN := 40
-//
-//	expectedFSA := 223.78125
-//	expectedCorrectedFSA := 217.0178
-//
-//	expectedLSA := 243.46875
-//	expectedCorrectedLSA := 235.6326
-//
-//	expectedDiff := 19.6875
-//
-//	actualLSN := testAngle[0] // correct
-//
-//	testRawFSA := (uint16(testAngle[2]) << 8) | uint16(testAngle[1])
-//	actualFSA := float32(testRawFSA>>1) / 64
-//
-//	testRawLSA := (uint16(testAngle[4]) << 8) | uint16(testAngle[3])
-//	actualLSA := float32(testRawLSA>>1) / 64
-//
-//	actualDiff := actualLSA - actualFSA
-//
-//	actualCorrectedFSA := (actualDiff/actualLSN)*(actualLSN-1) + actualFSA
-//
-//	// test calculateAngles function with testAngle
-//	actualCorrectedFSA, actualCorrectedLSA, actualDiff := calculateAngles()
-//
-//	assert.Equal(t, expectedDiff, actualDiff, "they should be equal")
-//	assert.Equal(t, expectedFSA, actualFSA, "they should be equal")
-//	assert.Equal(t, expectedLSA, actualLSA, "they should be equal")
-//	assert.Equal(t, expectedLSN, actualLSN, "they should be equal")
-//}
